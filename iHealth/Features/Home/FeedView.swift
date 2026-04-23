@@ -30,6 +30,7 @@ struct FeedView: View {
                 .padding(.horizontal, Theme.Space.md)
                 .padding(.top, Theme.Space.sm)
             }
+            .refreshable { await social.refresh() }
             .background(Theme.Color.bg.ignoresSafeArea())
             .navigationDestination(item: $selectedItem) { item in
                 WorkoutDetailView(feedItemId: item.id)

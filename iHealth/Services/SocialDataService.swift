@@ -65,12 +65,80 @@ final class SocialDataService {
                         atRiskByDate: nil, stakedSweat: 0, stakeExpiresAt: nil, multiplier: 1.0)
     }
 
+    // MARK: - Live data refresh (Cloudflare API)
+    //
+    // Fetches feed + clubs + athletes + shoes + PRs in parallel. If any
+    // call fails we keep the existing (seeded or stale) data — friends
+    // testing should never see an empty screen because the network
+    // hiccuped for a moment. Silent-on-error by design.
+
+    var lastRefreshedAt: Date?
+    var isRefreshing: Bool = false
+
+    // Maps stable UUIDs (derived from backend IDs) back to the original
+    // backend string IDs so mutations can address the server.
+    private var feedItemApiIds: [UUID: String] = [:]
+    private var clubApiIds: [UUID: String] = [:]
+    private var shoeApiIds: [UUID: String] = [:]
+
+    func apiIdForFeedItem(_ id: UUID) -> String { feedItemApiIds[id] ?? "" }
+    func apiIdForClub(_ id: UUID) -> String { clubApiIds[id] ?? "" }
+    func apiIdForShoe(_ id: UUID) -> String { shoeApiIds[id] ?? "" }
+
+    func refresh() async {
+        guard !isRefreshing else { return }
+        isRefreshing = true
+        defer { isRefreshing = false }
+
+        async let feedResult: [FeedItemDTO]? = try? APIClient.shared.fetchFeed(sort: "recent", limit: 50)
+        async let clubsResult: [ClubDTO]? = try? APIClient.shared.fetchClubs(filter: "all")
+        async let meResult: AthleteDTO? = try? APIClient.shared.fetchMe()
+        async let shoesResult: [ShoeDTO]? = try? APIClient.shared.fetchShoes(athleteId: "0xdemo_me")
+        async let prsResult: [PRDTO]? = try? APIClient.shared.fetchPRs(athleteId: "0xdemo_me")
+
+        let (fetchedFeed, fetchedClubs, fetchedMe, fetchedShoes, fetchedPRs) =
+            await (feedResult, clubsResult, meResult, shoesResult, prsResult)
+
+        if let dtos = fetchedFeed, !dtos.isEmpty {
+            let items = dtos.map(FeedItem.init(dto:))
+            feed = items
+            feedItemApiIds = Dictionary(uniqueKeysWithValues:
+                zip(items.map(\.id), dtos.map(\.id)))
+            // Harvest athletes from feed so profile taps resolve.
+            let seen = Set(athletes.map(\.id))
+            let newAthletes = dtos.map { Athlete(dto: $0.athlete) }
+                .filter { !seen.contains($0.id) }
+            athletes.append(contentsOf: newAthletes)
+        }
+        if let dtos = fetchedClubs, !dtos.isEmpty {
+            let mapped = dtos.map(Club.init(dto:))
+            clubs = mapped
+            clubApiIds = Dictionary(uniqueKeysWithValues:
+                zip(mapped.map(\.id), dtos.map(\.id)))
+        }
+        if let meDto = fetchedMe {
+            me = Athlete(dto: meDto)
+        }
+        if let dtos = fetchedShoes {
+            let mapped = dtos.map(Shoe.init(dto:))
+            shoes = mapped
+            shoeApiIds = Dictionary(uniqueKeysWithValues:
+                zip(mapped.map(\.id), dtos.map(\.id)))
+        }
+        if let dtos = fetchedPRs, !dtos.isEmpty {
+            personalRecords = dtos.map(PersonalRecord.init(dto:))
+        }
+
+        lastRefreshedAt = .now
+    }
+
     // MARK: - Actions (mutate local state, optimistic)
 
     func toggleKudos(on feedItemId: UUID, tip: Int = 0) {
         guard let idx = feed.firstIndex(where: { $0.id == feedItemId }),
               let me else { return }
         var item = feed[idx]
+        let liking = !item.userHasKudosed
         if item.userHasKudosed {
             item.kudos.removeAll { $0.athlete.id == me.id }
             item.userHasKudosed = false
@@ -80,6 +148,17 @@ final class SocialDataService {
             item.tippedSweat += tip
         }
         feed[idx] = item
+        // Fire to the server. We don't await — the UI already reflects the
+        // optimistic mutation; the API call only matters so the next
+        // refresh shows the right aggregate to other viewers.
+        let apiId = apiIdForFeedItem(feedItemId)
+        if !apiId.isEmpty {
+            Task.detached {
+                try? await APIClient.shared.toggleKudos(
+                    feedItemId: apiId, tip: tip, liked: liking
+                )
+            }
+        }
     }
 
     func addComment(_ body: String, to feedItemId: UUID) {
@@ -96,6 +175,17 @@ final class SocialDataService {
         guard let idx = clubs.firstIndex(where: { $0.id == clubId }) else { return }
         clubs[idx].isJoined.toggle()
         clubs[idx].memberCount += clubs[idx].isJoined ? 1 : -1
+        let apiId = apiIdForClub(clubId)
+        let joined = clubs[idx].isJoined
+        if !apiId.isEmpty {
+            Task.detached {
+                if joined {
+                    try? await APIClient.shared.joinClub(id: apiId)
+                } else {
+                    try? await APIClient.shared.leaveClub(id: apiId)
+                }
+            }
+        }
     }
 
     func toggleChallengeJoin(_ challengeId: UUID) {
@@ -159,8 +249,9 @@ final class SocialDataService {
 
     func addShoe(brand: String, model: String, nickname: String?,
                  tone: AvatarTone, milesTotal: Double) {
+        let localId = UUID()
         let shoe = Shoe(
-            id: UUID(),
+            id: localId,
             brand: brand.trimmingCharacters(in: .whitespaces),
             model: model.trimmingCharacters(in: .whitespaces),
             nickname: nickname?.trimmingCharacters(in: .whitespaces).isEmpty == true ? nil : nickname,
@@ -171,14 +262,26 @@ final class SocialDataService {
             startedAt: .now
         )
         shoes.insert(shoe, at: 0)
+        // Persist to the server so the shoe shows up on other devices.
+        let req = AddShoeRequest(
+            brand: shoe.brand, model: shoe.model,
+            nickname: shoe.nickname, tone: tone.rawValue,
+            milesTotal: milesTotal
+        )
+        Task.detached { [weak self] in
+            if let serverId = try? await APIClient.shared.addShoe(req) {
+                await MainActor.run { self?.shoeApiIds[localId] = serverId }
+            }
+        }
     }
 
     func createClub(name: String, handle: String, tagline: String,
                     description: String, tone: AvatarTone) {
         let trimmedName = name.trimmingCharacters(in: .whitespaces)
         let trimmedHandle = handle.trimmingCharacters(in: .whitespaces)
+        let localId = UUID()
         let club = Club(
-            id: UUID(),
+            id: localId,
             name: trimmedName,
             handle: trimmedHandle,
             tagline: tagline.trimmingCharacters(in: .whitespaces),
@@ -193,6 +296,16 @@ final class SocialDataService {
             activeChallengeIDs: []
         )
         clubs.insert(club, at: 0)
+        let req = CreateClubRequest(
+            name: trimmedName, handle: trimmedHandle,
+            tagline: club.tagline, description: club.description,
+            heroTone: tone.rawValue, tags: []
+        )
+        Task.detached { [weak self] in
+            if let serverId = try? await APIClient.shared.createClub(req) {
+                await MainActor.run { self?.clubApiIds[localId] = serverId }
+            }
+        }
     }
 
     func muteAthlete(_ athleteId: String) {

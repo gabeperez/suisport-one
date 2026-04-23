@@ -36,6 +36,7 @@ struct ClubsView: View {
                 .padding(.top, Theme.Space.sm)
             }
             .background(Theme.Color.bg.ignoresSafeArea())
+            .refreshable { await social.refresh() }
             .navigationTitle("Clubs")
             .navigationBarTitleDisplayMode(.large)
             .toolbar {

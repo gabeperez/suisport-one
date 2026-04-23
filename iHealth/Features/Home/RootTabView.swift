@@ -4,6 +4,7 @@ enum RootTab: Hashable { case feed, clubs, explore, you }
 
 struct RootTabView: View {
     @Environment(AppState.self) private var app
+    @Environment(SocialDataService.self) private var social
     @State private var tab: RootTab = .feed
     @State private var showRecord = false
 
@@ -20,6 +21,7 @@ struct RootTabView: View {
                 .presentationCornerRadius(Theme.Radius.xl)
         }
         .background(Theme.Color.bg.ignoresSafeArea())
+        .task { await social.refresh() }
     }
 
     @ViewBuilder private var content: some View {

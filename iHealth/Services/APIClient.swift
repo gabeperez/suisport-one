@@ -179,14 +179,28 @@ nonisolated final class APIClient: @unchecked Sendable {
         return req
     }
 
-    private func send<T: Decodable>(_ req: URLRequest) async throws -> T {
-        let (data, resp) = try await session.data(for: req)
-        guard let http = resp as? HTTPURLResponse else { throw APIError.transport(URLError(.badServerResponse)) }
-        if !(200..<300).contains(http.statusCode) {
-            let msg = String(data: data, encoding: .utf8) ?? ""
-            throw APIError.server(http.statusCode, msg)
+    private func send<T: Decodable>(_ req: URLRequest, attempt: Int = 1) async throws -> T {
+        do {
+            let (data, resp) = try await session.data(for: req)
+            guard let http = resp as? HTTPURLResponse else { throw APIError.transport(URLError(.badServerResponse)) }
+            if http.statusCode == 401 {
+                sessionToken = nil    // Session dead, fall back to demo
+                throw APIError.server(401, "unauthorized")
+            }
+            if (500..<600).contains(http.statusCode) && attempt == 1 {
+                try await Task.sleep(nanoseconds: 400_000_000)
+                return try await send(req, attempt: 2)
+            }
+            if !(200..<300).contains(http.statusCode) {
+                let msg = String(data: data, encoding: .utf8) ?? ""
+                throw APIError.server(http.statusCode, msg)
+            }
+            return try decoder.decode(T.self, from: data)
+        } catch let error as URLError where attempt == 1 &&
+            [.timedOut, .networkConnectionLost, .notConnectedToInternet].contains(error.code) {
+            try await Task.sleep(nanoseconds: 400_000_000)
+            return try await send(req, attempt: 2)
         }
-        return try decoder.decode(T.self, from: data)
     }
 
     private func get<T: Decodable>(_ path: String) async throws -> T {

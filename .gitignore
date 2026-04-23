@@ -1,0 +1,32 @@
+# macOS
+.DS_Store
+
+# Xcode
+*.xcuserstate
+*.xcuserdatad/
+xcuserdata/
+*.moved-aside
+build/
+DerivedData/
+*.pbxuser
+!default.pbxuser
+*.perspectivev3
+!default.perspectivev3
+
+# Swift PM
+.swiftpm/
+Package.resolved
+
+# Node / Cloudflare
+node_modules/
+.wrangler/
+.env
+.env.local
+.dev.vars
+*.log
+
+# Logs / temp
+/tmp/
+tmp/
+*.log
+.vscode/

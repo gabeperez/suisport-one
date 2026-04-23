@@ -1,0 +1,22 @@
+name = "suisport-api"
+main = "src/index.ts"
+compatibility_date = "2025-01-10"
+compatibility_flags = ["nodejs_compat"]
+
+# Production — workers.dev route by default; attach a custom domain when ready.
+workers_dev = true
+
+[[d1_databases]]
+binding = "DB"
+database_name = "suisport-db"
+database_id = "285b1bc5-afd6-493d-abf3-096b95d450aa"
+
+[[r2_buckets]]
+binding = "MEDIA"
+bucket_name = "suisport-media"
+
+[vars]
+ENVIRONMENT = "production"
+# Admin token for protected routes (clear-demo, reseed). Override in wrangler
+# secrets for production: `wrangler secret put ADMIN_TOKEN`.
+ADMIN_TOKEN = "demo-token-change-me"

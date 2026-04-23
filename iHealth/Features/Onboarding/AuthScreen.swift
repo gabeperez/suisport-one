@@ -1,0 +1,205 @@
+import SwiftUI
+
+struct AuthScreen: View {
+    @Environment(AppState.self) private var app
+    @Environment(\.colorScheme) private var colorScheme
+    @State private var showHowItWorks = false
+
+    var body: some View {
+        OnboardingShell(showsBack: true) {
+            ScrollView {
+                VStack(alignment: .leading, spacing: Theme.Space.lg) {
+                    Spacer().frame(height: Theme.Space.md)
+
+                    Text("Welcome")
+                        .font(.displayL)
+                        .foregroundStyle(Theme.Color.ink)
+
+                    Text("One tap. No password. No wallet.\nYour points just start adding up.")
+                        .font(.bodyL)
+                        .foregroundStyle(Theme.Color.inkSoft)
+
+                    Spacer().frame(height: Theme.Space.md)
+
+                    trustRow
+
+                    Spacer().frame(height: Theme.Space.md)
+                }
+                .padding(.horizontal, Theme.Space.lg)
+            }
+        } actions: {
+            if app.isAuthInFlight {
+                inFlightButton
+            } else {
+                appleSignInButton
+
+                Button {
+                    Haptics.tap()
+                    Task { await app.signInWithGoogle() }
+                } label: {
+                    HStack(spacing: 10) {
+                        Image(systemName: "g.circle.fill")
+                            .font(.system(size: 18, weight: .semibold))
+                        Text("Continue with Google")
+                            .font(.system(size: 17, weight: .semibold, design: .rounded))
+                    }
+                    .foregroundStyle(Theme.Color.ink)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 54)
+                    .background(
+                        RoundedRectangle(cornerRadius: Theme.Radius.pill, style: .continuous)
+                            .fill(Theme.Color.bgElevated)
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: Theme.Radius.pill, style: .continuous)
+                            .strokeBorder(Theme.Color.stroke, lineWidth: 1)
+                    )
+                }
+                .buttonStyle(.plain)
+
+                Button {
+                    Haptics.tap()
+                    showHowItWorks = true
+                } label: {
+                    Text("How is this free?")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(Theme.Color.inkFaint)
+                }
+                .buttonStyle(.plain)
+                .padding(.top, 4)
+            }
+        }
+        .sheet(isPresented: $showHowItWorks) { howItWorksSheet }
+    }
+
+    private var inFlightButton: some View {
+        PrimaryButton(title: "Setting things up…", isLoading: true,
+                      tint: Theme.Color.ink, fg: Theme.Color.inkInverse) {}
+            .shimmer()
+    }
+
+    /// HIG-styled Sign in with Apple button. Uses our own `AuthService` flow.
+    /// We intentionally don't use `SignInWithAppleButton`: its internal view
+    /// has a hard `width <= 375` constraint that conflicts with SwiftUI's
+    /// parent hosting-view width on larger iPhones, producing a stream of
+    /// "Unable to simultaneously satisfy constraints" logs. A custom button
+    /// also lets us reuse the single `AuthService` presentation path instead
+    /// of relying on Apple's button completion callback.
+    private var appleSignInButton: some View {
+        Button {
+            Haptics.pop()
+            Task { await app.signInWithApple() }
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: "apple.logo")
+                    .font(.system(size: 18, weight: .medium))
+                Text("Continue with Apple")
+                    .font(.system(size: 17, weight: .semibold))
+            }
+            .foregroundStyle(colorScheme == .dark ? Color.black : Color.white)
+            .frame(maxWidth: .infinity)
+            .frame(height: 54)
+        }
+        .buttonStyle(AppleButtonStyle(colorScheme: colorScheme))
+    }
+
+    private var trustRow: some View {
+        HStack(spacing: 10) {
+            trustChip(icon: "lock.shield.fill", text: "Private by default")
+            trustChip(icon: "checkmark.seal.fill", text: "Verified workouts")
+            trustChip(icon: "sparkles", text: "No gas, no fees")
+        }
+    }
+
+    private func trustChip(icon: String, text: String) -> some View {
+        VStack(spacing: 6) {
+            Image(systemName: icon)
+                .font(.system(size: 18, weight: .semibold))
+                .foregroundStyle(Theme.Color.accentDeep)
+            Text(text)
+                .font(.system(size: 11, weight: .semibold, design: .rounded))
+                .foregroundStyle(Theme.Color.inkSoft)
+                .multilineTextAlignment(.center)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 14)
+        .background(
+            RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous)
+                .fill(Theme.Color.accent.opacity(0.12))
+        )
+    }
+
+    private var howItWorksSheet: some View {
+        VStack(alignment: .leading, spacing: Theme.Space.lg) {
+            Text("How it works")
+                .font(.displayS)
+                .foregroundStyle(Theme.Color.ink)
+                .padding(.top, Theme.Space.md)
+
+            row("Log real workouts",
+                "SuiSport reads Apple Health to count what you already do — runs, rides, walks, lifts.",
+                icon: "heart.fill")
+            row("Earn points automatically",
+                "You get Sweat Points for every verified workout. No ads. No surveys. Just move.",
+                icon: "sparkles")
+            row("Redeem for real stuff",
+                "Swap points for gear, sponsor quests, or cash out to $SWEAT in our companion app.",
+                icon: "gift.fill")
+
+            Spacer()
+            GhostButton(title: "Got it") {}
+                .frame(maxWidth: .infinity)
+        }
+        .padding(Theme.Space.lg)
+        .presentationDetents([.medium])
+        .presentationCornerRadius(Theme.Radius.xl)
+    }
+
+    private func row(_ title: String, _ body: String, icon: String) -> some View {
+        HStack(alignment: .top, spacing: 14) {
+            Image(systemName: icon)
+                .font(.system(size: 18, weight: .semibold))
+                .foregroundStyle(Theme.Color.accentInk)
+                .frame(width: 36, height: 36)
+                .background(Circle().fill(Theme.Color.accent))
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title).font(.titleM).foregroundStyle(Theme.Color.ink)
+                Text(body).font(.bodyM).foregroundStyle(Theme.Color.inkSoft)
+            }
+        }
+    }
+}
+
+/// Press-animated style for the Apple sign-in button. Uses
+/// `configuration.isPressed` so there's no separate gesture recognizer to
+/// compete with the button's tap.
+struct AppleButtonStyle: ButtonStyle {
+    let colorScheme: ColorScheme
+
+    func makeBody(configuration: Configuration) -> some View {
+        let bg: Color = colorScheme == .dark ? .white : .black
+        let border: Color = colorScheme == .dark
+            ? Color.black.opacity(0.05)
+            : Color.white.opacity(0.08)
+        configuration.label
+            .background(
+                RoundedRectangle(cornerRadius: Theme.Radius.pill, style: .continuous)
+                    .fill(bg)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: Theme.Radius.pill, style: .continuous)
+                    .strokeBorder(border, lineWidth: 1)
+            )
+            .scaleEffect(configuration.isPressed ? 0.97 : 1.0)
+            .shadow(
+                color: bg.opacity(0.22),
+                radius: configuration.isPressed ? 6 : 14,
+                y: configuration.isPressed ? 3 : 8
+            )
+            .animation(Theme.Motion.snap, value: configuration.isPressed)
+    }
+}
+
+#Preview {
+    AuthScreen().environment(AppState())
+}

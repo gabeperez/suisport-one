@@ -1,0 +1,29 @@
+{
+  "name": "suisport-backend",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "SuiSport backend — abstracts Enoki zkLogin, Walrus storage, App Attest verification, and Sui sponsored transactions from the iOS app.",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/index.js",
+    "test": "vitest"
+  },
+  "dependencies": {
+    "@mysten/enoki": "^0.4.0",
+    "@mysten/seal": "^0.1.0",
+    "@mysten/sui": "^1.18.0",
+    "@mysten/walrus": "^0.2.0",
+    "blake2b": "^2.1.4",
+    "fastify": "^4.28.0",
+    "node-forge": "^1.3.1",
+    "zod": "^3.23.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0"
+  }
+}

@@ -1,24 +1,27 @@
-//
-//  ContentView.swift
-//  iHealth
-//
-//  Created by Gabe Perez on 4/7/26.
-//
-
 import SwiftUI
 
-struct ContentView: View {
+/// Router between onboarding and main app. The @Observable AppState lives at app root.
+struct RootView: View {
+    @Environment(AppState.self) private var app
+
     var body: some View {
-        VStack {
-            Image(systemName: "globe")
-                .imageScale(.large)
-                .foregroundStyle(.tint)
-            Text("Hello, world!")
+        ZStack {
+            if app.hasCompletedOnboarding {
+                RootTabView()
+                    .transition(.asymmetric(
+                        insertion: .opacity.combined(with: .scale(scale: 1.02)),
+                        removal: .opacity
+                    ))
+            } else {
+                OnboardingCoordinator()
+                    .transition(.opacity)
+            }
         }
-        .padding()
+        .animation(Theme.Motion.soft, value: app.hasCompletedOnboarding)
     }
 }
 
 #Preview {
-    ContentView()
+    RootView()
+        .environment(AppState())
 }

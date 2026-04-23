@@ -10,13 +10,41 @@ workers_dev = true
 binding = "DB"
 database_name = "suisport-db"
 database_id = "285b1bc5-afd6-493d-abf3-096b95d450aa"
+migrations_dir = "migrations"
 
 [[r2_buckets]]
 binding = "MEDIA"
 bucket_name = "suisport-media"
 
+# Rate limiter: 60 requests / minute per IP on mutating routes.
+# Uses Cloudflare's native rate-limiting API binding (no KV namespace needed).
+[[unsafe.bindings]]
+name = "RATE_LIMIT"
+type = "ratelimit"
+namespace_id = "1001"
+simple = { limit = 60, period = 60 }
+
+# ----- Staging environment -----
+# Deploy with `wrangler deploy --env staging`. Requires a separate D1
+# database for isolation. You're currently at the Cloudflare 10-DB cap
+# on Free; either delete another unused DB and uncomment the block
+# below, or upgrade to Workers Paid ($5/mo) which lifts the cap.
+#
+# [env.staging]
+# name = "suisport-api-staging"
+# [env.staging.vars]
+# ENVIRONMENT = "staging"
+# [[env.staging.d1_databases]]
+# binding = "DB"
+# database_name = "suisport-db-staging"
+# database_id = "<create-me>"
+# migrations_dir = "migrations"
+# [[env.staging.r2_buckets]]
+# binding = "MEDIA"
+# bucket_name = "suisport-media-staging"
+
 [vars]
 ENVIRONMENT = "production"
-# Admin token for protected routes (clear-demo, reseed). Override in wrangler
-# secrets for production: `wrangler secret put ADMIN_TOKEN`.
-ADMIN_TOKEN = "demo-token-change-me"
+# ADMIN_TOKEN is a wrangler secret. Rotate with:
+#   echo "<new-token>" | wrangler secret put ADMIN_TOKEN
+# Never commit the value.

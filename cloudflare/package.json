@@ -7,12 +7,14 @@
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
     "tail": "wrangler tail",
-    "db:schema": "wrangler d1 execute suisport-db --remote --file=./schema.sql",
+    "db:migrate": "wrangler d1 migrations apply suisport-db --remote",
+    "db:migrate:list": "wrangler d1 migrations list suisport-db --remote",
     "db:seed": "wrangler d1 execute suisport-db --remote --file=./seed.sql",
     "db:clear-demo": "wrangler d1 execute suisport-db --remote --command=\"DELETE FROM feed_items WHERE is_demo=1; DELETE FROM workouts WHERE is_demo=1; DELETE FROM kudos WHERE is_demo=1; DELETE FROM comments WHERE is_demo=1; DELETE FROM club_members WHERE is_demo=1; DELETE FROM clubs WHERE is_demo=1; DELETE FROM challenge_participants WHERE is_demo=1; DELETE FROM challenges WHERE is_demo=1; DELETE FROM segment_efforts WHERE is_demo=1; DELETE FROM segments WHERE is_demo=1; DELETE FROM trophy_unlocks WHERE is_demo=1; DELETE FROM trophies WHERE is_demo=1; DELETE FROM shoes WHERE is_demo=1; DELETE FROM personal_records WHERE is_demo=1; DELETE FROM streaks WHERE is_demo=1; DELETE FROM sweat_points WHERE is_demo=1; DELETE FROM follows WHERE is_demo=1; DELETE FROM athletes WHERE is_demo=1; DELETE FROM users WHERE is_demo=1;\""
   },
   "dependencies": {
-    "hono": "^4.6.14"
+    "hono": "^4.6.14",
+    "zod": "^4.3.6"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20250110.0",

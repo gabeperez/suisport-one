@@ -1,7 +1,8 @@
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import type { Env, Variables } from "./env.js";
-import { sessionMiddleware } from "./auth.js";
+import { sessionMiddleware, rateLimit } from "./auth.js";
+import { ValidationError } from "./validation.js";
 import { social } from "./routes/social.js";
 import { workouts } from "./routes/workouts.js";
 import { media } from "./routes/media.js";
@@ -38,6 +39,14 @@ app.get("/health", async (c) => {
 
 // Mount everything under /v1 so future breaking changes can ship as /v2.
 const v1 = new Hono<{ Bindings: Env; Variables: Variables }>();
+// Rate-limit every mutating method. GET / HEAD / OPTIONS pass through
+// so feed browsing stays snappy even under noisy clients.
+v1.use("*", async (c, next) => {
+    if (c.req.method === "GET" || c.req.method === "HEAD" || c.req.method === "OPTIONS") {
+        return next();
+    }
+    return rateLimit(c, next);
+});
 v1.route("/", auth);
 v1.route("/", social);
 v1.route("/workouts", workouts);
@@ -48,9 +57,14 @@ app.route("/v1", v1);
 
 app.notFound((c) => c.json({ error: "not_found", path: c.req.path }, 404));
 app.onError((err, c) => {
-    const msg = err.message === "UNAUTHORIZED" ? "unauthorized" : err.message;
-    const status = err.message === "UNAUTHORIZED" ? 401 : 500;
-    return c.json({ error: msg }, status);
+    if (err instanceof ValidationError) {
+        return c.json({ error: "validation_error", issues: err.issues }, 400);
+    }
+    if (err.message === "UNAUTHORIZED") {
+        return c.json({ error: "unauthorized" }, 401);
+    }
+    console.error("unhandled error", err);
+    return c.json({ error: "internal_error" }, 500);
 });
 
 export default app;

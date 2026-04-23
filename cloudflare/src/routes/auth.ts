@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import type { Env, Variables } from "../env.js";
+import { parseBody, AuthExchangeSchema } from "../validation.js";
 
 export const auth = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -8,11 +9,7 @@ export const auth = new Hono<{ Bindings: Env; Variables: Variables }>();
 // address from the id token so the client gets a stable identity to work
 // with. Matches the iOS AuthService behavior.
 auth.post("/auth/session", async (c) => {
-    const body = await c.req.json<{
-        provider: "google" | "apple" | "email";
-        idToken: string;
-        displayName?: string;
-    }>();
+    const body = await parseBody(c, AuthExchangeSchema);
 
     const suiAddress = await deterministicAddr(body.idToken || body.provider);
     const sessionId = crypto.randomUUID();

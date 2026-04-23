@@ -44,3 +44,22 @@ export async function adminGuard(
     c.set("isAdmin", true);
     await next();
 }
+
+/// Rate-limit middleware. Keys on the session athlete when present,
+/// otherwise on the request IP. Returns 429 when the caller exceeds the
+/// window defined in wrangler.toml (60 req/min today).
+export async function rateLimit(
+    c: Context<{ Bindings: Env; Variables: Variables }>,
+    next: Next
+) {
+    const key = c.get("athleteId")
+        ?? c.req.header("CF-Connecting-IP")
+        ?? "anon";
+    // Native binding is not present in `wrangler dev` unless explicitly
+    // enabled; skip gracefully when undefined so local dev still works.
+    if (c.env.RATE_LIMIT?.limit) {
+        const { success } = await c.env.RATE_LIMIT.limit({ key });
+        if (!success) return c.json({ error: "rate_limited" }, 429);
+    }
+    await next();
+}

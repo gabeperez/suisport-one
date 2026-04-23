@@ -8,6 +8,10 @@ import {
     type TrophyRow, type ShoeRow, type PRRow,
 } from "../db.js";
 import { requireAthlete } from "../auth.js";
+import {
+    parseBody, AthletePatchSchema, KudosSchema, CommentSchema,
+    ReportSchema, CreateClubSchema, AddShoeSchema,
+} from "../validation.js";
 
 export const social = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -37,11 +41,7 @@ social.get("/me", async (c) => {
 
 social.patch("/me", async (c) => {
     const id = requireAthlete(c);
-    const body = await c.req.json<{
-        displayName?: string; handle?: string; bio?: string;
-        location?: string; avatarTone?: string; bannerTone?: string;
-        photoR2Key?: string | null;
-    }>();
+    const body = await parseBody(c, AthletePatchSchema);
     const fields: string[] = [];
     const binds: unknown[] = [];
     if (body.displayName != null) { fields.push("display_name = ?"); binds.push(body.displayName); }
@@ -106,8 +106,8 @@ social.get("/feed", async (c) => {
 social.post("/feed/:id/kudos", async (c) => {
     const athleteId = requireAthlete(c);
     const feedItemId = c.req.param("id");
-    const body = await c.req.json<{ tip?: number }>().catch(() => ({ tip: 0 }));
-    const tip = Math.max(0, body.tip ?? 0);
+    const body = await parseBody(c, KudosSchema);
+    const tip = body.tip;
     const kudosId = crypto.randomUUID();
     await c.env.DB.batch([
         c.env.DB.prepare(
@@ -143,9 +143,8 @@ social.delete("/feed/:id/kudos", async (c) => {
 social.post("/feed/:id/comments", async (c) => {
     const athleteId = requireAthlete(c);
     const feedItemId = c.req.param("id");
-    const body = await c.req.json<{ body: string }>();
-    const text = (body.body ?? "").trim().slice(0, 500);
-    if (!text) return c.json({ error: "empty" }, 400);
+    const body = await parseBody(c, CommentSchema);
+    const text = body.body.trim();
     const cid = crypto.randomUUID();
     await c.env.DB.batch([
         c.env.DB.prepare(
@@ -211,7 +210,7 @@ social.post("/mute/:id", async (c) => {
 
 social.post("/report", async (c) => {
     const me = requireAthlete(c);
-    const body = await c.req.json<{ feedItemId?: string; athleteId?: string; reason: string }>();
+    const body = await parseBody(c, ReportSchema);
     const id = crypto.randomUUID();
     await c.env.DB.prepare(
         `INSERT INTO reports (id, reporter_id, feed_item_id, athlete_id, reason)
@@ -247,10 +246,7 @@ social.get("/clubs/:id", async (c) => {
 
 social.post("/clubs", async (c) => {
     const me = requireAthlete(c);
-    const body = await c.req.json<{
-        name: string; handle: string; tagline?: string;
-        description?: string; heroTone?: string; tags?: string[];
-    }>();
+    const body = await parseBody(c, CreateClubSchema);
     const id = `clb_${crypto.randomUUID().replace(/-/g, "").slice(0, 14)}`;
     await c.env.DB.batch([
         c.env.DB.prepare(
@@ -421,17 +417,14 @@ social.get("/athletes/:id/shoes", async (c) => {
 
 social.post("/shoes", async (c) => {
     const me = requireAthlete(c);
-    const body = await c.req.json<{
-        brand: string; model: string; nickname?: string | null;
-        tone?: string; milesTotal?: number;
-    }>();
+    const body = await parseBody(c, AddShoeSchema);
     const id = `shoe_${crypto.randomUUID().replace(/-/g, "").slice(0, 12)}`;
     await c.env.DB.prepare(
         `INSERT INTO shoes (id, athlete_id, brand, model, nickname, tone, miles_total)
          VALUES (?, ?, ?, ?, ?, ?, ?)`
     ).bind(
         id, me, body.brand, body.model, body.nickname ?? null,
-        body.tone ?? "sunset", body.milesTotal ?? 800
+        body.tone, body.milesTotal
     ).run();
     return c.json({ id });
 });

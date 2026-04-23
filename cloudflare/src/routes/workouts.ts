@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import type { Env, Variables } from "../env.js";
 import { workoutDTO, type WorkoutRow } from "../db.js";
 import { requireAthlete } from "../auth.js";
+import { parseBody, SubmitWorkoutSchema } from "../validation.js";
 
 export const workouts = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -11,18 +12,7 @@ export const workouts = new Hono<{ Bindings: Env; Variables: Variables }>();
 // tx digest. Promote to Queues when the real pipeline lands.
 workouts.post("/", async (c) => {
     const athleteId = requireAthlete(c);
-    const body = await c.req.json<{
-        type: string;
-        startDate: number;
-        durationSeconds: number;
-        distanceMeters?: number | null;
-        energyKcal?: number | null;
-        avgHeartRate?: number | null;
-        paceSecondsPerKm?: number | null;
-        points: number;
-        title: string;
-        caption?: string | null;
-    }>();
+    const body = await parseBody(c, SubmitWorkoutSchema);
 
     const workoutId = `w_${crypto.randomUUID().replace(/-/g, "").slice(0, 16)}`;
     const feedId = `fi_${crypto.randomUUID().replace(/-/g, "").slice(0, 16)}`;

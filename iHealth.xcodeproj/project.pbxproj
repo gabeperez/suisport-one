@@ -257,6 +257,7 @@
 				DEVELOPMENT_TEAM = FX9AP8JB22;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = iHealth/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = SuiSports;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.healthcare-fitness";
 				INFOPLIST_KEY_NSHealthShareUsageDescription = "SuiSport uses Apple Health to count your workouts and turn them into Sweat Points.";
@@ -299,6 +300,7 @@
 				DEVELOPMENT_TEAM = FX9AP8JB22;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = iHealth/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = SuiSports;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.healthcare-fitness";
 				INFOPLIST_KEY_NSHealthShareUsageDescription = "SuiSport uses Apple Health to count your workouts and turn them into Sweat Points.";

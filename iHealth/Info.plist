@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!--
+      Partial Info.plist. Xcode 16 merges this on top of the values
+      GENERATE_INFOPLIST_FILE produces from every `INFOPLIST_KEY_*`
+      setting in the pbxproj, so we only need to declare keys that
+      don't have a corresponding `INFOPLIST_KEY_*` — in our case, URL
+      scheme registration, which only accepts array-of-dicts.
+
+      Registering `suisport://` lets external apps (Slush, Safari
+      coming back from a universal link) route deep links into us.
+      WalletConnectBridge listens for `suisport://wallet-connect-callback?…`
+      and resolves the pending sign-in continuation.
+    -->
+    <key>CFBundleURLTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleTypeRole</key>
+            <string>Editor</string>
+            <key>CFBundleURLName</key>
+            <string>gimme.coffee.iHealth.suisport</string>
+            <key>CFBundleURLSchemes</key>
+            <array>
+                <string>suisport</string>
+            </array>
+        </dict>
+    </array>
+</dict>
+</plist>

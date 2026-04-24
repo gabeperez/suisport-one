@@ -18,6 +18,12 @@ struct RootView: View {
             }
         }
         .animation(Theme.Motion.soft, value: app.hasCompletedOnboarding)
+        // Route `suisport://` callbacks into the wallet bridge so the
+        // pending sign-in continuation can resume when Slush returns.
+        // Any URL the bridge doesn't recognize is a no-op.
+        .onOpenURL { url in
+            _ = WalletConnectBridge.shared.handleIncomingURL(url)
+        }
     }
 }
 

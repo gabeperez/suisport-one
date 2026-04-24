@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
     ConnectButton,
     useCurrentAccount,
@@ -30,6 +30,7 @@ export default function App() {
 
     const [status, setStatus] = useState("idle");    // idle | signing | redirecting | error
     const [errMsg, setErrMsg] = useState("");
+    const signedForAddress = useRef(null);
 
     const sign = () => {
         if (!account) return;
@@ -56,6 +57,21 @@ export default function App() {
             },
         );
     };
+
+    // Auto-sign the moment a wallet connects. In the canonical flow
+    // we're running INSIDE Slush's in-app browser, which auto-injects
+    // + auto-connects the user's account — the human just wanted to
+    // sign in, they didn't want to tap a second button. Fire once
+    // per address; the user can still tap "Sign & continue" if auto
+    // fires before they're ready.
+    useEffect(() => {
+        if (!account || !challengeId || !nonce) return;
+        if (signedForAddress.current === account.address) return;
+        if (status !== "idle") return;
+        signedForAddress.current = account.address;
+        sign();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [account?.address, challengeId, nonce]);
 
     const paramsMissing = !challengeId || !nonce;
 

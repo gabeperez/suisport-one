@@ -17,10 +17,14 @@ export async function sessionMiddleware(
         ).bind(token).first<{ sui_address: string }>();
         if (row) c.set("athleteId", row.sui_address);
     }
-    // Dev-only fallback (gated on env). Remove in prod behind a real auth flow.
+    // Dev-only fallback for curl smoke tests. Remove in prod.
+    // Accept `0xdemo_*` seeds OR a full 64-hex-char Sui address so we
+    // can hit /v1/workouts with a real on-chain identity while testing.
     if (!c.get("athleteId")) {
         const q = c.req.query("athleteId");
-        if (q && q.startsWith("0xdemo_")) c.set("athleteId", q);
+        if (q && (q.startsWith("0xdemo_") || /^0x[a-fA-F0-9]{64}$/.test(q))) {
+            c.set("athleteId", q);
+        }
     }
     await next();
 }

@@ -21,8 +21,29 @@ import { SuiJsonRpcClient, getJsonRpcFullnodeUrl } from "@mysten/sui/jsonRpc";
 import { Ed25519Keypair } from "@mysten/sui/keypairs/ed25519";
 import { Transaction } from "@mysten/sui/transactions";
 import { fromBase64, toHex } from "@mysten/sui/utils";
+import { decodeSuiPrivateKey } from "@mysten/sui/cryptography";
 import { ed25519 } from "@noble/curves/ed25519.js";
 import { blake2b } from "@noble/hashes/blake2.js";
+
+/// Return the raw 32-byte Ed25519 seed from either a `suiprivkey1...`
+/// bech32 string or a plain base64 seed.
+function rawSeed(s: string): Uint8Array {
+    if (s.startsWith("suiprivkey")) {
+        return decodeSuiPrivateKey(s).secretKey;
+    }
+    const raw = fromBase64(s);
+    return raw.length === 32 ? raw : raw.slice(0, 32);
+}
+
+/// Build an Ed25519Keypair from either representation. The SDK's
+/// `fromSecretKey` accepts the suiprivkey string directly; for raw
+/// base64 we feed it the decoded bytes.
+export function operatorKeypair(s: string): Ed25519Keypair {
+    if (s.startsWith("suiprivkey")) {
+        return Ed25519Keypair.fromSecretKey(s);
+    }
+    return Ed25519Keypair.fromSecretKey(rawSeed(s));
+}
 
 export interface SuiEnv {
     SUI_NETWORK?: string;
@@ -88,13 +109,10 @@ export function buildAttestationDigest(input: {
 }
 
 export function signAttestation(
-    oraclePrivateKeyB64: string,
+    oraclePrivateKey: string,
     digest: Uint8Array
 ): Uint8Array {
-    const raw = fromBase64(oraclePrivateKeyB64);
-    // @mysten key export is 32-byte seed OR 64-byte keypair; handle both.
-    const seed = raw.length === 32 ? raw : raw.slice(0, 32);
-    return ed25519.sign(digest, seed);
+    return ed25519.sign(digest, rawSeed(oraclePrivateKey));
 }
 
 /** Build + submit a `rewards_engine::submit_workout` transaction.
@@ -156,9 +174,7 @@ export async function submitWorkoutOnChain(
         ],
     });
 
-    const operator = Ed25519Keypair.fromSecretKey(
-        fromBase64(env.SUI_OPERATOR_KEY!)
-    );
+    const operator = operatorKeypair(env.SUI_OPERATOR_KEY!);
     const res = await client.signAndExecuteTransaction({
         signer: operator,
         transaction: tx,
@@ -192,7 +208,7 @@ export async function getSweatBalance(
 export function operatorAddress(env: SuiEnv): string | null {
     if (!env.SUI_OPERATOR_KEY) return null;
     try {
-        const kp = Ed25519Keypair.fromSecretKey(fromBase64(env.SUI_OPERATOR_KEY));
+        const kp = operatorKeypair(env.SUI_OPERATOR_KEY);
         return kp.getPublicKey().toSuiAddress();
     } catch {
         return null;

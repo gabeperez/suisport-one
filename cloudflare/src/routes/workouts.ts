@@ -5,10 +5,8 @@ import { requireAthlete } from "../auth.js";
 import { parseBody, SubmitWorkoutSchema } from "../validation.js";
 import { vetWorkout } from "../fraud.js";
 import { walrusUploadSafe } from "../walrus.js";
-import { hasSuiConfig, submitWorkoutOnChain, suiClient } from "../sui.js";
-import { Ed25519Keypair } from "@mysten/sui/keypairs/ed25519";
+import { hasSuiConfig, submitWorkoutOnChain, suiClient, operatorKeypair } from "../sui.js";
 import { Transaction } from "@mysten/sui/transactions";
-import { fromBase64 } from "@mysten/sui/utils";
 
 export const workouts = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -203,7 +201,7 @@ async function ensureUserProfile(env: Env, athleteId: string): Promise<string> {
     // Operator pays; profile is transferred to sender (operator) so the
     // operator can mutate it later in submit_workout.
     const client = suiClient(env);
-    const operator = Ed25519Keypair.fromSecretKey(fromBase64(env.SUI_OPERATOR_KEY!));
+    const operator = operatorKeypair(env.SUI_OPERATOR_KEY!);
     const tx = new Transaction();
     tx.moveCall({
         target: `${env.SUI_PACKAGE_ID}::user_profile::create_and_transfer`,

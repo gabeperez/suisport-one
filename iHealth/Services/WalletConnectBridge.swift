@@ -1,5 +1,6 @@
 import SwiftUI
 import UIKit
+import AuthenticationServices
 
 /// Coordinates a "sign a server challenge with your Sui wallet" flow.
 ///
@@ -30,11 +31,74 @@ final class WalletConnectBridge {
         let signature: String
     }
 
-    /// Presents the sheet and suspends until the user completes or
-    /// cancels. Throws `Cancelled` on explicit cancel.
+    /// Preferred path: open our hosted `/wallet-connect` page in an
+    /// ephemeral browser (ASWebAuthenticationSession). The page runs
+    /// the real Sui Wallet Standard flow and redirects back to
+    /// `suisport://wallet-connect-callback?address=…&signature=…`. We
+    /// intercept the callback and return the signed triple.
+    ///
+    /// Fallback path: when the user cancels the web session OR the
+    /// page's JS link explicitly returns `?cancel=paste`, drop into
+    /// the paste-back sheet so they always have a way through.
     func collectSignedChallenge() async throws -> SignedChallenge {
         let challenge = try await APIClient.shared.walletChallenge()
-        return try await withCheckedThrowingContinuation { cont in
+
+        if let signed = try? await webBridge(challenge: challenge) {
+            return signed
+        }
+        // Web path cancelled or failed → manual paste-back sheet.
+        return try await pasteBackSheet(challenge: challenge)
+    }
+
+    private func webBridge(
+        challenge: WalletChallengeResponse
+    ) async throws -> SignedChallenge {
+        let scheme = "suisport"
+        var comps = URLComponents(string:
+            "https://suisport-api.perez-jg22.workers.dev/wallet-connect")!
+        comps.queryItems = [
+            URLQueryItem(name: "challengeId", value: challenge.challengeId),
+            URLQueryItem(name: "nonce", value: challenge.nonce),
+            URLQueryItem(name: "returnScheme", value: scheme),
+        ]
+        let callback: URL = try await withCheckedThrowingContinuation { cont in
+            let session = ASWebAuthenticationSession(
+                url: comps.url!, callbackURLScheme: scheme
+            ) { url, err in
+                if let err {
+                    cont.resume(throwing: err)
+                    return
+                }
+                guard let url else {
+                    cont.resume(throwing: Cancelled())
+                    return
+                }
+                cont.resume(returning: url)
+            }
+            session.presentationContextProvider = WebAuthAnchorProvider.shared
+            session.start()
+        }
+
+        let items = URLComponents(url: callback, resolvingAgainstBaseURL: false)?
+            .queryItems ?? []
+        func q(_ name: String) -> String? {
+            items.first(where: { $0.name == name })?.value
+        }
+        // The HTML explicitly asks for paste-back with cancel=paste —
+        // raise a sentinel so the caller falls through.
+        if q("cancel") == "paste" { throw Cancelled() }
+
+        guard let address = q("address"), let signature = q("signature"),
+              let id = q("challengeId")
+        else { throw Cancelled() }
+
+        return SignedChallenge(challengeId: id, address: address, signature: signature)
+    }
+
+    private func pasteBackSheet(
+        challenge: WalletChallengeResponse
+    ) async throws -> SignedChallenge {
+        try await withCheckedThrowingContinuation { cont in
             let host = UIHostingController(rootView: WalletConnectSheet(
                 challenge: challenge,
                 onCompleted: { signed in cont.resume(returning: signed) },
@@ -57,8 +121,27 @@ final class WalletConnectBridge {
     }
 }
 
-/// Sheet UI. Small, focused, nothing fancy — this is a beta surface
-/// that'll get replaced when the Sui wallet-connect story stabilizes.
+/// Presentation anchor for ASWebAuthenticationSession. Re-used from
+/// GoogleAuth's pattern — grab the first foreground-active window.
+private final class WebAuthAnchorProvider: NSObject,
+    ASWebAuthenticationPresentationContextProviding {
+    static let shared = WebAuthAnchorProvider()
+    func presentationAnchor(
+        for session: ASWebAuthenticationSession
+    ) -> ASPresentationAnchor {
+        let scene = UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .first { $0.activationState == .foregroundActive }
+        if let window = scene?.windows.first { return window }
+        return ASPresentationAnchor(windowScene: scene!)
+    }
+}
+
+/// Paste-back sheet. This is the fallback when the hosted web
+/// bridge's ASWebAuthenticationSession doesn't give us a signed
+/// result (user cancels, no wallet installed, etc.). Designed to
+/// feel intentional — numbered step cards, Sui-blue accents,
+/// collapsible advanced affordance — not debugger-ish.
 struct WalletConnectSheet: View {
     let challenge: WalletChallengeResponse
     let onCompleted: (WalletConnectBridge.SignedChallenge) -> Void
@@ -66,18 +149,22 @@ struct WalletConnectSheet: View {
 
     @State private var address = ""
     @State private var signature = ""
-    @State private var errorMessage: String?
     @State private var pastedBlob = ""
+    @State private var copied = false
+    @State private var showAdvanced = false
     @Environment(\.dismiss) private var dismiss
+
+    private let suiBlue = Color(red: 0.13, green: 0.45, blue: 0.86)
+    private let suiBlueSoft = Color(red: 0.13, green: 0.45, blue: 0.86).opacity(0.12)
 
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(alignment: .leading, spacing: Theme.Space.lg) {
-                    header
-                    step1
-                    step2
-                    errorBlock
+                VStack(spacing: Theme.Space.md) {
+                    hero
+                    step1Card
+                    step2Card
+                    advancedCard
                     Color.clear.frame(height: 40)
                 }
                 .padding(Theme.Space.lg)
@@ -90,10 +177,12 @@ struct WalletConnectSheet: View {
                     Button("Cancel") { onCancel(); dismiss() }
                 }
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button("Done") {
+                    Button {
                         submit()
+                    } label: {
+                        Text("Sign in")
+                            .fontWeight(.semibold)
                     }
-                    .fontWeight(.semibold)
                     .disabled(!canSubmit)
                 }
             }
@@ -104,103 +193,188 @@ struct WalletConnectSheet: View {
         address.hasPrefix("0x") && address.count == 66 && !signature.isEmpty
     }
 
-    private var header: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Sign in with your existing Sui wallet")
-                .font(.titleM).foregroundStyle(Theme.Color.ink)
-            Text("Your wallet proves it's you by signing a one-time nonce. We verify the signature on the server — no private keys leave your wallet.")
-                .font(.bodyM).foregroundStyle(Theme.Color.inkSoft)
+    // MARK: - Hero
+
+    private var hero: some View {
+        VStack(spacing: 10) {
+            ZStack {
+                Circle().fill(suiBlueSoft).frame(width: 72, height: 72)
+                Image(systemName: "wallet.pass.fill")
+                    .font(.system(size: 30, weight: .bold))
+                    .foregroundStyle(suiBlue)
+            }
+            Text("Connect your Sui wallet")
+                .font(.titleL).foregroundStyle(Theme.Color.ink)
+            Text("Your wallet signs a one-time nonce — your private keys never leave it.")
+                .font(.bodyM)
+                .foregroundStyle(Theme.Color.inkSoft)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, Theme.Space.md)
         }
+        .frame(maxWidth: .infinity)
+        .padding(.top, Theme.Space.md)
     }
 
-    private var step1: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Label("1. Sign this message in your wallet", systemImage: "signature")
-                .font(.labelBold).foregroundStyle(Theme.Color.ink)
-            Text(challenge.nonce)
-                .font(.labelMono)
+    // MARK: - Step cards
+
+    private var step1Card: some View {
+        stepCard(number: 1, title: "Copy the sign-in message") {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(alignment: .top, spacing: 10) {
+                    Image(systemName: "signature")
+                        .foregroundStyle(suiBlue)
+                    Text(challenge.nonce)
+                        .font(.system(.footnote, design: .monospaced))
+                        .foregroundStyle(Theme.Color.ink)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
                 .padding(12)
-                .frame(maxWidth: .infinity, alignment: .leading)
                 .background(RoundedRectangle(cornerRadius: Theme.Radius.md)
-                    .fill(Theme.Color.bgElevated))
-            HStack(spacing: 10) {
+                    .fill(Theme.Color.bg))
+                .overlay(
+                    RoundedRectangle(cornerRadius: Theme.Radius.md)
+                        .strokeBorder(Theme.Color.stroke, lineWidth: 1)
+                )
+
                 Button {
                     UIPasteboard.general.string = challenge.nonce
                     Haptics.success()
-                } label: {
-                    Label("Copy nonce", systemImage: "doc.on.doc")
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.bordered)
-
-                Button {
-                    // Best-effort deep link to Slush. If it's not
-                    // installed, iOS just does nothing — user falls back
-                    // to copy-paste.
-                    let msg = challenge.nonce.data(using: .utf8)?
-                        .base64EncodedString() ?? ""
-                    if let url = URL(string: "slush://sign-personal-message?message=\(msg)") {
-                        UIApplication.shared.open(url, options: [:]) { opened in
-                            if !opened { Haptics.error() }
-                        }
+                    withAnimation(Theme.Motion.snap) { copied = true }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                        withAnimation(Theme.Motion.snap) { copied = false }
                     }
                 } label: {
-                    Label("Open Slush", systemImage: "arrow.up.right.square")
-                        .frame(maxWidth: .infinity)
+                    HStack(spacing: 8) {
+                        Image(systemName: copied ? "checkmark" : "doc.on.doc.fill")
+                        Text(copied ? "Copied" : "Copy message")
+                    }
+                    .font(.system(size: 14, weight: .semibold, design: .rounded))
+                    .foregroundStyle(.white)
+                    .padding(.vertical, 12)
+                    .frame(maxWidth: .infinity)
+                    .background(Capsule().fill(suiBlue))
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.plain)
+
+                Text("Open Slush (or any Sui wallet) → Settings → Sign Personal Message → paste.")
+                    .font(.caption)
+                    .foregroundStyle(Theme.Color.inkFaint)
             }
         }
     }
 
-    private var step2: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Label("2. Paste the signed result", systemImage: "square.and.arrow.down")
-                .font(.labelBold).foregroundStyle(Theme.Color.ink)
-            Text("Your wallet returns a JSON like `{\"address\": \"0x…\", \"signature\": \"…\"}`. Paste it below — we'll fill in the fields automatically.")
-                .font(.caption).foregroundStyle(Theme.Color.inkSoft)
-
-            TextField("Paste JSON here", text: $pastedBlob, axis: .vertical)
-                .font(.labelMono)
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
-                .lineLimit(3...6)
-                .padding(12)
-                .background(RoundedRectangle(cornerRadius: Theme.Radius.md)
-                    .fill(Theme.Color.surface))
-                .onChange(of: pastedBlob) { _, new in tryParse(new) }
-
-            // Advanced: lets the user enter address + signature individually
-            // if their wallet doesn't return a nice JSON blob.
-            VStack(alignment: .leading, spacing: 6) {
-                TextField("Address (0x…)", text: $address)
-                    .font(.labelMono).textInputAutocapitalization(.never)
+    private var step2Card: some View {
+        stepCard(number: 2, title: "Paste the signed result") {
+            VStack(alignment: .leading, spacing: 10) {
+                TextField("""
+                { "address": "0x…", "signature": "…" }
+                """, text: $pastedBlob, axis: .vertical)
+                    .font(.system(.footnote, design: .monospaced))
+                    .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
-                TextField("Signature", text: $signature, axis: .vertical)
-                    .font(.labelMono).textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                    .lineLimit(2...5)
+                    .lineLimit(3...6)
+                    .padding(12)
+                    .background(RoundedRectangle(cornerRadius: Theme.Radius.md)
+                        .fill(Theme.Color.bg))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: Theme.Radius.md)
+                            .strokeBorder(canSubmit ? suiBlue : Theme.Color.stroke,
+                                          lineWidth: canSubmit ? 1.5 : 1)
+                    )
+                    .onChange(of: pastedBlob) { _, new in tryParse(new) }
+                if canSubmit {
+                    HStack(spacing: 4) {
+                        Image(systemName: "checkmark.circle.fill")
+                        Text("Ready to sign in")
+                    }
+                    .font(.system(size: 11, weight: .semibold, design: .rounded))
+                    .foregroundStyle(Theme.Color.accentDeep)
+                } else {
+                    Text("Your wallet returns a JSON object — we'll parse the address and signature automatically.")
+                        .font(.caption).foregroundStyle(Theme.Color.inkFaint)
+                }
             }
-            .padding(12)
-            .background(RoundedRectangle(cornerRadius: Theme.Radius.md)
-                .fill(Theme.Color.surface))
         }
     }
 
     @ViewBuilder
-    private var errorBlock: some View {
-        if let errorMessage {
-            Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(Theme.Color.hot)
-                .padding(10)
-                .background(RoundedRectangle(cornerRadius: Theme.Radius.sm)
-                    .fill(Theme.Color.hot.opacity(0.12)))
+    private var advancedCard: some View {
+        DisclosureGroup(isExpanded: $showAdvanced) {
+            VStack(alignment: .leading, spacing: 10) {
+                advField(label: "Sui address", placeholder: "0x…", text: $address)
+                advField(label: "Signature", placeholder: "AA…", text: $signature, multiline: true)
+            }
+            .padding(.top, 10)
+        } label: {
+            HStack {
+                Image(systemName: "wrench.and.screwdriver")
+                    .foregroundStyle(Theme.Color.inkSoft)
+                Text("Paste fields individually")
+                    .font(.system(size: 13, weight: .medium, design: .rounded))
+            }
+            .foregroundStyle(Theme.Color.inkSoft)
+        }
+        .padding(Theme.Space.md)
+        .background(RoundedRectangle(cornerRadius: Theme.Radius.lg)
+            .fill(Theme.Color.bgElevated))
+    }
+
+    private func advField(label: String, placeholder: String, text: Binding<String>,
+                          multiline: Bool = false) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(label)
+                .font(.system(size: 11, weight: .semibold, design: .rounded))
+                .foregroundStyle(Theme.Color.inkSoft)
+            if multiline {
+                TextField(placeholder, text: text, axis: .vertical)
+                    .font(.system(.footnote, design: .monospaced))
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .lineLimit(2...5)
+                    .padding(10)
+                    .background(RoundedRectangle(cornerRadius: Theme.Radius.sm)
+                        .fill(Theme.Color.bg))
+            } else {
+                TextField(placeholder, text: text)
+                    .font(.system(.footnote, design: .monospaced))
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .padding(10)
+                    .background(RoundedRectangle(cornerRadius: Theme.Radius.sm)
+                        .fill(Theme.Color.bg))
+            }
         }
     }
 
+    // MARK: - Shell
+
+    private func stepCard<Content: View>(
+        number: Int, title: String,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 10) {
+                ZStack {
+                    Circle().fill(suiBlue)
+                        .frame(width: 24, height: 24)
+                    Text("\(number)")
+                        .font(.system(size: 12, weight: .bold, design: .rounded))
+                        .foregroundStyle(.white)
+                }
+                Text(title)
+                    .font(.system(size: 15, weight: .semibold, design: .rounded))
+                    .foregroundStyle(Theme.Color.ink)
+                Spacer()
+            }
+            content()
+        }
+        .padding(Theme.Space.md)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: Theme.Radius.lg)
+            .fill(Theme.Color.bgElevated))
+    }
+
     private func tryParse(_ s: String) {
-        // Accept either a JSON blob or raw "address,signature" form.
         guard let data = s.data(using: .utf8),
               let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
         else { return }
@@ -209,7 +383,6 @@ struct WalletConnectSheet: View {
     }
 
     private func submit() {
-        errorMessage = nil
         onCompleted(.init(
             challengeId: challenge.challengeId,
             address: address.trimmingCharacters(in: .whitespacesAndNewlines),

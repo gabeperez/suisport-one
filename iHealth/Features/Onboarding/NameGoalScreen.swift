@@ -43,10 +43,15 @@ struct NameGoalScreen: View {
     private var greeting: some View {
         VStack(alignment: .leading, spacing: Theme.Space.sm) {
             let hello = (app.currentUser?.displayName).flatMap { first($0) } ?? "Hey there"
-            Text("\(hello) —")
-                .font(.displayL)
-                .foregroundStyle(Theme.Color.ink)
-            Text("Tell us who you're doing this for.")
+            HStack(spacing: 8) {
+                Text(app.currentUser?.suinsName != nil ? "Welcome back" : "\(hello) —")
+                    .font(.displayL)
+                    .foregroundStyle(Theme.Color.ink)
+                if app.currentUser?.suinsName != nil { SuiNSPill(name: app.currentUser!.suinsName!) }
+            }
+            Text(app.currentUser?.suinsName != nil
+                 ? "We found your SuiNS name. Looks good?"
+                 : "Tell us who you're doing this for.")
                 .font(.bodyL)
                 .foregroundStyle(Theme.Color.inkSoft)
         }
@@ -55,9 +60,19 @@ struct NameGoalScreen: View {
 
     private var nameField: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Your name")
-                .font(.labelBold)
-                .foregroundStyle(Theme.Color.inkSoft)
+            HStack {
+                Text("Your name")
+                    .font(.labelBold)
+                    .foregroundStyle(Theme.Color.inkSoft)
+                Spacer()
+                if app.currentUser?.suinsName != nil {
+                    Text("from .sui")
+                        .font(.system(size: 10, weight: .semibold, design: .rounded))
+                        .foregroundStyle(Theme.Color.accentDeep)
+                        .padding(.horizontal, 8).padding(.vertical, 3)
+                        .background(Capsule().fill(Theme.Color.accent.opacity(0.18)))
+                }
+            }
             TextField("First name", text: $name)
                 .textInputAutocapitalization(.words)
                 .submitLabel(.done)

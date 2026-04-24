@@ -72,6 +72,8 @@ final class AuthService: NSObject {
                 avatarURL: nil,
                 goal: nil,
                 suiAddress: resp.suiAddress,
+                suinsName: resp.suinsName,
+                suggestedHandle: resp.handle,
                 createdAt: .now
             )
         } catch {

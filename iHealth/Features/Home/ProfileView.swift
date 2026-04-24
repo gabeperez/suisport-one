@@ -10,6 +10,7 @@ struct ProfileView: View {
     @State private var pendingComingSoon: ComingSoonKind?
     @State private var selectedTrophy: Trophy?
     @State private var selectedAthleteId: String?
+    @State private var sweatBalance: String?
 
     enum ComingSoonKind: String, Identifiable {
         case cashout, notifications, appleHealth, privacy
@@ -90,6 +91,21 @@ struct ProfileView: View {
             )) { route in
                 AthleteProfileView(athleteId: route.id)
             }
+            .task { await loadSweatBalance() }
+        }
+    }
+
+    private var suinsNameForMe: String? {
+        social.me?.suinsName ?? app.currentUser?.suinsName
+    }
+
+    private func loadSweatBalance() async {
+        guard let addr = app.currentUser?.suiAddress, addr.hasPrefix("0x"),
+              addr.count == 66
+        else { return }
+        if let resp = try? await APIClient.shared.fetchSweatBalance(address: addr) {
+            // Hide if zero so the pill doesn't clutter the hero for new users.
+            sweatBalance = resp.raw == "0" ? nil : resp.display
         }
     }
 
@@ -117,7 +133,7 @@ struct ProfileView: View {
             // Avatar + name + tier
             HStack(alignment: .bottom, spacing: 14) {
                 avatarBubble.shadow(color: .black.opacity(0.35), radius: 18, y: 8)
-                VStack(alignment: .leading, spacing: 4) {
+                VStack(alignment: .leading, spacing: 6) {
                     HStack(spacing: 6) {
                         Text(social.me?.displayName ?? app.currentUser?.displayName ?? "You")
                             .font(.system(size: 24, weight: .bold, design: .rounded))
@@ -127,13 +143,19 @@ struct ProfileView: View {
                                 .font(.system(size: 14, weight: .bold))
                                 .foregroundStyle(.white)
                         }
-                        DemoChip()
                     }
                     HStack(spacing: 6) {
-                        if let me = social.me {
+                        if let suins = suinsNameForMe {
+                            SuiNSPill(name: suins)
+                        } else if let me = social.me {
                             Text("@\(me.handle)")
                                 .font(.system(size: 12, weight: .medium))
                                 .foregroundStyle(.white.opacity(0.75))
+                        }
+                        if let bal = sweatBalance {
+                            SweatPill(display: bal)
+                        }
+                        if let me = social.me {
                             Text("·").foregroundStyle(.white.opacity(0.5))
                             HStack(spacing: 4) {
                                 Circle().fill(me.tier.ring).frame(width: 6, height: 6)

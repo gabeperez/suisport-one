@@ -185,6 +185,101 @@ struct Shimmer: ViewModifier {
 }
 extension View { func shimmer() -> some View { modifier(Shimmer()) } }
 
+// MARK: - SuiNS pill
+// `alice.sui` badge with Sui-blue gradient fill + subtle glow. Displays
+// on the profile hero in place of (or alongside) the plain handle, and
+// on onboarding's NameGoal when we pre-fill from a discovered name.
+struct SuiNSPill: View {
+    let name: String
+    var style: Style = .hero
+
+    enum Style { case hero, inline }
+
+    var body: some View {
+        let gradient = LinearGradient(
+            colors: [
+                Color(red: 0.30, green: 0.65, blue: 0.95),
+                Color(red: 0.15, green: 0.45, blue: 0.80),
+            ],
+            startPoint: .topLeading, endPoint: .bottomTrailing
+        )
+        HStack(spacing: 5) {
+            Image(systemName: "checkmark.seal.fill")
+                .font(.system(size: style == .hero ? 11 : 9, weight: .bold))
+            Text(name)
+                .font(.system(size: style == .hero ? 12 : 10,
+                              weight: .bold, design: .rounded))
+        }
+        .foregroundStyle(.white)
+        .padding(.horizontal, style == .hero ? 10 : 7)
+        .padding(.vertical, style == .hero ? 5 : 3)
+        .background(Capsule().fill(gradient))
+        .overlay(Capsule().strokeBorder(.white.opacity(0.22), lineWidth: 0.5))
+        .shadow(color: Color(red: 0.15, green: 0.45, blue: 0.80).opacity(0.35),
+                radius: style == .hero ? 8 : 4, y: style == .hero ? 3 : 1)
+    }
+}
+
+// MARK: - SWEAT pill
+// Compact balance chip — gold gradient coin icon + amount. Renders as
+// `⚡ 85 SWEAT` on the profile hero.
+struct SweatPill: View {
+    let display: String
+    var style: SweatPillStyle = .hero
+
+    var body: some View {
+        let goldGrad = LinearGradient(
+            colors: [Color(red: 1.00, green: 0.80, blue: 0.25),
+                     Color(red: 0.95, green: 0.55, blue: 0.15)],
+            startPoint: .topLeading, endPoint: .bottomTrailing
+        )
+        HStack(spacing: 5) {
+            Image(systemName: "bolt.heart.fill")
+                .font(.system(size: style == .hero ? 11 : 9, weight: .bold))
+            Text(display)
+                .font(.system(size: style == .hero ? 12 : 10,
+                              weight: .bold, design: .rounded))
+            Text("SWEAT")
+                .font(.system(size: style == .hero ? 9 : 8,
+                              weight: .bold, design: .rounded))
+                .tracking(0.8)
+                .opacity(0.8)
+        }
+        .foregroundStyle(.white)
+        .padding(.horizontal, style == .hero ? 10 : 7)
+        .padding(.vertical, style == .hero ? 5 : 3)
+        .background(Capsule().fill(goldGrad))
+        .overlay(Capsule().strokeBorder(.white.opacity(0.22), lineWidth: 0.5))
+        .shadow(color: Color(red: 0.95, green: 0.55, blue: 0.15).opacity(0.30),
+                radius: style == .hero ? 8 : 4, y: style == .hero ? 3 : 1)
+    }
+}
+
+enum SweatPillStyle { case hero, inline }
+
+// MARK: - On-chain badge
+// A little chain-link icon indicating the workout is anchored on Sui.
+// Tap opens the Sui explorer in Safari. Used on FeedCard + workout details.
+struct OnChainBadge: View {
+    let txDigest: String
+    var explorerBase: String = "https://suiscan.xyz/testnet/tx"
+
+    var body: some View {
+        Link(destination: URL(string: "\(explorerBase)/\(txDigest)")!) {
+            HStack(spacing: 4) {
+                Image(systemName: "link")
+                    .font(.system(size: 9, weight: .bold))
+                Text("On-chain")
+                    .font(.system(size: 10, weight: .bold, design: .rounded))
+            }
+            .foregroundStyle(Theme.Color.accentDeep)
+            .padding(.horizontal, 7).padding(.vertical, 3)
+            .background(Capsule().fill(Theme.Color.accent.opacity(0.18)))
+            .overlay(Capsule().strokeBorder(Theme.Color.accentDeep.opacity(0.25), lineWidth: 0.5))
+        }
+    }
+}
+
 // MARK: - Demo chip
 // Subtle visual signal that what the user is looking at is seed fixture
 // data, not live data from their account. Rendered in feed + profile

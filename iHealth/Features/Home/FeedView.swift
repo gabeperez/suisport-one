@@ -393,10 +393,24 @@ struct FeedCard: View {
                     .frame(width: 30, height: 30)
                     .background(RoundedRectangle(cornerRadius: 8, style: .continuous)
                                     .fill(Theme.Color.accent.opacity(0.14)))
-                Text(item.title)
-                    .font(.titleM)
-                    .foregroundStyle(Theme.Color.ink)
-                    .lineLimit(1)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(item.title)
+                        .font(.titleM)
+                        .foregroundStyle(Theme.Color.ink)
+                        .lineLimit(1)
+                    if item.workout.verified {
+                        // Small "Verified on Sui" line. Full tx digest + explorer
+                        // link lives on the workout-detail view; here we just
+                        // hint at the fact.
+                        HStack(spacing: 4) {
+                            Image(systemName: "checkmark.seal.fill")
+                                .font(.system(size: 9, weight: .bold))
+                            Text("Verified on Sui")
+                                .font(.system(size: 10, weight: .semibold, design: .rounded))
+                        }
+                        .foregroundStyle(Theme.Color.accentDeep)
+                    }
+                }
                 Spacer()
                 HStack(spacing: 4) {
                     Image(systemName: "bolt.heart.fill")

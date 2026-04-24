@@ -47,7 +47,8 @@ extension Athlete {
             bannerTone: AvatarTone(rawValue: dto.bannerTone) ?? .sunset,
             photoData: nil,
             showcasedTrophyIDs: [],
-            location: dto.location
+            location: dto.location,
+            suinsName: dto.suinsName
         )
     }
 }

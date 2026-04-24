@@ -7,6 +7,12 @@ struct User: Identifiable, Hashable, Codable {
     var goal: UserGoal?
     /// Sui address derived from zkLogin. Never shown in UI — buried in Settings → Advanced.
     var suiAddress: String
+    /// SuiNS name owned by the address (e.g. "alice.sui"), if any.
+    /// Pre-fills NameGoal + shows as a pill in the profile hero.
+    var suinsName: String? = nil
+    /// Suggested default handle from SuiNS — "alice" from "alice.sui".
+    /// NameGoal uses it as a placeholder; user can override.
+    var suggestedHandle: String? = nil
     var createdAt: Date
 }
 

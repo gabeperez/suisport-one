@@ -263,6 +263,7 @@ struct AthleteDTO: Decodable, Hashable {
     let bio: String?
     let location: String?
     let photoURL: String?
+    let suinsName: String?
     let isDemo: Bool
 }
 struct AthleteEnvelope: Decodable { let athlete: AthleteDTO }
@@ -444,6 +445,9 @@ struct AuthExchangeResponse: Decodable {
     let sessionJwt: String
     let suiAddress: String
     let displayName: String
+    let handle: String?
+    let suinsName: String?
+    let verified: Bool?
 }
 
 struct AthletePatch: Encodable {

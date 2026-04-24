@@ -21,6 +21,7 @@ struct Athlete: Identifiable, Hashable, Codable {
     var photoData: Data? = nil              // user-picked avatar; takes precedence over gradient
     var showcasedTrophyIDs: [UUID] = []     // up to 3 pinned trophies
     var location: String? = nil             // optional "Brooklyn, NY"
+    var suinsName: String? = nil            // "alice.sui" if the address owns one
 
     static func preview(_ handle: String, name: String, tier: AthleteTier = .starter,
                         verified: Bool = false) -> Athlete {

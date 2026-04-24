@@ -16,9 +16,12 @@ import CryptoKit
 /// that Google Cloud config MUST be `gimme.coffee.iHealth`.
 enum GoogleAuth {
 
-    /// Fill this in with your Google iOS OAuth client id.
-    /// Shape: `XXXXX-YYYYY.apps.googleusercontent.com`.
-    static let clientId: String = ""    // TODO: paste your Google client id
+    /// Google iOS OAuth client id — the same value registered in the
+    /// Enoki dashboard as the Google provider's audience. Public info
+    /// (safe to commit); the bundle id side (gimme.coffee.iHealth) is
+    /// what anchors it in Google Cloud Console.
+    static let clientId: String =
+        "424529031571-cavvh4m16c5mkns3v5p7l34smeo62ok1.apps.googleusercontent.com"
 
     static var isConfigured: Bool { !clientId.isEmpty }
 

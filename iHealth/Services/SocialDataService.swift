@@ -713,7 +713,7 @@ private extension SocialDataService {
                  heroTone: .ocean, memberCount: 148_512, sweatTreasury: 820_000,
                  isJoined: false, isVerifiedBrand: true, weeklyKm: 98_224,
                  tags: ["cycling", "brand"], activeChallengeIDs: []),
-            Club(id: UUID(), name: "SuiSport Founders' Circle", handle: "sui_core",
+            Club(id: UUID(), name: "SuiSport ONE Founders' Circle", handle: "sui_core",
                  tagline: "The earliest athletes on chain.",
                  description: "Our OGs. Soulbound membership, founder-drop gear, monthly AMA with the team.",
                  heroTone: .grape, memberCount: 412, sweatTreasury: 55_000,
@@ -760,7 +760,7 @@ private extension SocialDataService {
             ),
             Challenge(
                 id: UUID(), title: "Sub-3 May",
-                subtitle: "Nike x SuiSport marathon prep block",
+                subtitle: "Nike x SuiSport ONE marathon prep block",
                 kind: .workouts,
                 sponsor: Sponsor(name: "Nike", handle: "nike", color: "#111111"),
                 goal: ChallengeGoal(kind: .workouts, target: 24, unit: "workouts"),

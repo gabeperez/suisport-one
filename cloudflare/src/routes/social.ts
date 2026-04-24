@@ -675,7 +675,7 @@ async function notifyKudos(
         const pair = await actorAndOwner(env, feedItemId, actorId);
         if (!pair) return;
         await sendPushToAthlete(env, pair.owner_id,
-            { title: "SuiSport", body: `${pair.who} gave you kudos` },
+            { title: "SuiSport ONE", body: `${pair.who} gave you kudos` },
             {
                 threadId: `feed:${feedItemId}`,
                 category: "KUDOS",
@@ -691,7 +691,7 @@ async function notifyTip(
         const pair = await actorAndOwner(env, feedItemId, actorId);
         if (!pair) return;
         await sendPushToAthlete(env, pair.owner_id,
-            { title: "SuiSport", body: `${pair.who} tipped you ${amount} ⚡` },
+            { title: "SuiSport ONE", body: `${pair.who} tipped you ${amount} ⚡` },
             {
                 threadId: `feed:${feedItemId}`,
                 category: "TIP",

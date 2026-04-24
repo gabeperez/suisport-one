@@ -86,13 +86,13 @@ struct HeroScreen: View {
 
     private var headline: some View {
         VStack(alignment: .leading, spacing: Theme.Space.md) {
-            Text("Get paid\nto move.")
+            Text("Train like\na fighter.")
                 .font(.displayXL)
                 .foregroundStyle(.white)
                 .lineSpacing(-6)
                 .multilineTextAlignment(.leading)
 
-            Text("Turn every run, ride, and walk\ninto rewards you actually want.")
+            Text("Verified training, on-chain rewards,\nbuilt with ONE Championship.")
                 .font(.system(size: 17, weight: .regular, design: .default))
                 .foregroundStyle(.white.opacity(0.7))
         }

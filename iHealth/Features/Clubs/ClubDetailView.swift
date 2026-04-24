@@ -50,7 +50,7 @@ struct ClubDetailView: View {
     }
 
     private func clubShareText(_ c: Club) -> String {
-        "Join \(c.name) (@\(c.handle)) on SuiSport — \(c.tagline). suisport.app"
+        "Join \(c.name) (@\(c.handle)) on SuiSport ONE — \(c.tagline). suisport.app"
     }
 
     // MARK: - Hero

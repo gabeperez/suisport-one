@@ -48,7 +48,7 @@ struct HealthPermissionScreen: View {
                 .font(.displayL)
                 .foregroundStyle(Theme.Color.ink)
                 .lineSpacing(-4)
-            Text("SuiSport reads Apple Health to count your workouts.\nWe never see your data without your OK.")
+            Text("SuiSport ONE reads Apple Health to count your workouts.\nWe never see your data without your OK.")
                 .font(.bodyL)
                 .foregroundStyle(Theme.Color.inkSoft)
         }

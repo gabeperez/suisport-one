@@ -614,7 +614,7 @@ struct ShareCardSheet: View {
     }
 
     /// Short plain-text description for the system share sheet, mirrors
-    /// the feed-card copy ("Ajoy ran 5.2 km in 32 min on SuiSport").
+    /// the feed-card copy ("Ajoy ran 5.2 km in 32 min on SuiSport ONE").
     private var systemShareText: String {
         let who = item.athlete.displayName
         let verb: String
@@ -631,9 +631,9 @@ struct ShareCardSheet: View {
         let time = h > 0 ? "\(h)h \(m)m" : "\(m) min"
         if let d = item.workout.distanceMeters, d > 0 {
             let km = String(format: "%.1f", d / 1000)
-            return "\(who) \(verb) \(km) km in \(time) on SuiSport"
+            return "\(who) \(verb) \(km) km in \(time) on SuiSport ONE"
         }
-        return "\(who) \(verb) for \(time) on SuiSport"
+        return "\(who) \(verb) for \(time) on SuiSport ONE"
     }
 
     private var systemShareURL: URL {
@@ -704,7 +704,7 @@ struct ShareCardSheet: View {
                 VStack(alignment: .leading, spacing: 1) {
                     Text(item.athlete.displayName)
                         .font(.system(size: 14, weight: .semibold, design: .rounded))
-                    Text("on SuiSport")
+                    Text("on SuiSport ONE")
                         .font(.system(size: 11))
                         .foregroundStyle(.white.opacity(0.7))
                 }

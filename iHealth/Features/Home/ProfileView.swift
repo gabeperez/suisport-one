@@ -84,7 +84,7 @@ struct ProfileView: View {
                 case .appleHealth:
                     ComingSoonSheet(icon: "heart.fill",
                                     title: "Apple Health",
-                                    message: "Re-authorize or tweak which workout types we read. Open Settings → Privacy & Security → Health → SuiSport.")
+                                    message: "Re-authorize or tweak which workout types we read. Open Settings → Privacy & Security → Health → SuiSport ONE.")
                 case .privacy:
                     ComingSoonSheet(icon: "lock.fill",
                                     title: "Privacy",
@@ -744,7 +744,7 @@ struct ProfileView: View {
         let me = social.me
         let name = me?.displayName ?? app.currentUser?.displayName ?? "me"
         let handle = me.map { "@\($0.handle)" } ?? ""
-        return "Follow \(name) \(handle) on SuiSport — proof-of-sweat fitness on Sui. suisport.app"
+        return "Follow \(name) \(handle) on SuiSport ONE — proof-of-sweat fitness on Sui. suisport.app"
     }
 
     private func menuRow(_ title: String, icon: String, action: @escaping () -> Void) -> some View {
@@ -880,7 +880,7 @@ struct AdvancedSheet: View {
     var body: some View {
         NavigationStack {
             List {
-                Section("Your SuiSport ID") {
+                Section("Your SuiSport ONE ID") {
                     HStack {
                         Text(truncated)
                             .font(.labelMono)

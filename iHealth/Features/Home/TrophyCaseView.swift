@@ -34,7 +34,7 @@ struct TrophyCaseView: View {
             Text("\(unlocked) of \(total) unlocked")
                 .font(.displayS)
                 .foregroundStyle(Theme.Color.ink)
-            Text("Soulbound to your SuiSport profile. They're yours, forever.")
+            Text("Soulbound to your SuiSport ONE profile. They're yours, forever.")
                 .font(.bodyM).foregroundStyle(Theme.Color.inkSoft)
         }
     }
@@ -224,7 +224,7 @@ struct TrophyDetailSheet: View {
     }
 
     private var shareText: String {
-        "I just unlocked \(trophy.title) on SuiSport — \(trophy.subtitle). Soulbound and on-chain. suisport.app"
+        "I just unlocked \(trophy.title) on SuiSport ONE — \(trophy.subtitle). Soulbound and on-chain. suisport.app"
     }
 
     private var hero: some View {

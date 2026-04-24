@@ -644,7 +644,7 @@ struct FeedCard: View {
     }
 
     /// Short workout description for the share sheet — "<name> ran 5.2 km
-    /// in 32 min on SuiSport" for movement activities, falls back to the
+    /// in 32 min on SuiSport ONE" for movement activities, falls back to the
     /// feed title for sports that don't have a distance (lift, yoga…).
     private var shareText: String {
         let who = item.athlete.displayName
@@ -660,9 +660,9 @@ struct FeedCard: View {
         let time = formatDuration(item.workout.duration)
         if let d = item.workout.distanceMeters, d > 0 {
             let km = String(format: "%.1f", d / 1000)
-            return "\(who) \(verb) \(km) km in \(time) on SuiSport"
+            return "\(who) \(verb) \(km) km in \(time) on SuiSport ONE"
         }
-        return "\(who) \(verb) for \(time) on SuiSport"
+        return "\(who) \(verb) for \(time) on SuiSport ONE"
     }
 
     /// Deep link landing page. Backend may not have the /w/<id> route

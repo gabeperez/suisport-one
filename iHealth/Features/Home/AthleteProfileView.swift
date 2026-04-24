@@ -43,8 +43,8 @@ struct AthleteProfileView: View {
     }
 
     private var shareText: String {
-        guard let a = athlete else { return "SuiSport" }
-        return "Follow \(a.displayName) (@\(a.handle)) on SuiSport — proof-of-sweat fitness on Sui. suisport.app"
+        guard let a = athlete else { return "SuiSport ONE" }
+        return "Follow \(a.displayName) (@\(a.handle)) on SuiSport ONE — proof-of-sweat fitness on Sui. suisport.app"
     }
 
     private var isMe: Bool { social.me?.id == athleteId }

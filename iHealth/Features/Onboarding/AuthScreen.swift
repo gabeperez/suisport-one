@@ -231,7 +231,7 @@ struct AuthScreen: View {
                 .padding(.top, Theme.Space.md)
 
             row("Log real workouts",
-                "SuiSport reads Apple Health to count what you already do — runs, rides, walks, lifts.",
+                "SuiSport ONE reads Apple Health to count what you already do — runs, rides, walks, lifts.",
                 icon: "heart.fill")
             row("Earn points automatically",
                 "You get Sweat Points for every verified workout. No ads. No surveys. Just move.",

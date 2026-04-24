@@ -48,7 +48,7 @@ struct AgeGateScreen: View {
                 PrimaryButton(title: "You must be 13+", icon: "lock.fill",
                               tint: Theme.Color.hot, fg: .white) {}
                     .disabled(true)
-                Text("HealthKit and SuiSport require athletes to be 13 or older. We'll hold your account until you're eligible.")
+                Text("HealthKit and SuiSport ONE require athletes to be 13 or older. We'll hold your account until you're eligible.")
                     .font(.footnote)
                     .foregroundStyle(Theme.Color.inkFaint)
                     .multilineTextAlignment(.center)

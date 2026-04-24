@@ -49,7 +49,10 @@ extension Athlete {
             photoData: nil,
             showcasedTrophyIDs: [],
             location: dto.location,
-            suinsName: dto.suinsName
+            suinsName: dto.suinsName,
+            pronouns: dto.pronouns,
+            websiteUrl: dto.websiteUrl,
+            photoURL: dto.photoURL
         )
     }
 }

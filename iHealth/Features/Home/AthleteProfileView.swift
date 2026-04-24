@@ -68,6 +68,7 @@ struct AthleteProfileView: View {
                 .font(.system(size: 13, weight: .medium))
                 .foregroundStyle(Theme.Color.inkFaint)
             tierBadge(a.tier)
+            profileMeta(a)
             if let bio = a.bio, !bio.isEmpty {
                 Text(bio)
                     .font(.bodyM)
@@ -75,6 +76,39 @@ struct AthleteProfileView: View {
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, Theme.Space.lg)
             }
+            if let link = a.websiteUrl,
+               let url = URL(string: link.trimmingCharacters(in: .whitespaces)),
+               url.scheme?.hasPrefix("http") == true {
+                Button {
+                    Haptics.tap()
+                    UIApplication.shared.open(url)
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "link")
+                            .font(.system(size: 11, weight: .bold))
+                        Text(url.host ?? link)
+                            .font(.system(size: 13, weight: .semibold, design: .rounded))
+                            .lineLimit(1)
+                    }
+                    .foregroundStyle(Theme.Color.accentDeep)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
+    /// Pronouns + location as an inline pair under the tier badge.
+    /// Hidden entirely if neither is set so we don't waste vertical
+    /// space on brand-new profiles.
+    @ViewBuilder
+    private func profileMeta(_ a: Athlete) -> some View {
+        let pieces: [String] = [a.pronouns, a.location]
+            .compactMap { $0?.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+        if !pieces.isEmpty {
+            Text(pieces.joined(separator: " · "))
+                .font(.system(size: 12, weight: .medium, design: .rounded))
+                .foregroundStyle(Theme.Color.inkFaint)
         }
     }
 

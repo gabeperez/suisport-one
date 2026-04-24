@@ -61,6 +61,25 @@ nonisolated final class APIClient: @unchecked Sendable {
         (try await get("/athletes/\(id)") as AthleteEnvelope).athlete
     }
 
+    // MARK: - Media
+
+    /// POST /v1/media/avatar (raw body). Server accepts image/jpeg,
+    /// image/png, or image/webp up to 5 MB and returns the public URL
+    /// plus the stable R2 key. Stash the key in an AthletePatch to
+    /// associate the upload with the signed-in athlete.
+    func uploadAvatar(data: Data, mime: String) async throws -> (url: String, r2Key: String) {
+        var req = URLRequest(url: urlFor("/media/avatar"))
+        req.httpMethod = "POST"
+        req.setValue(mime, forHTTPHeaderField: "Content-Type")
+        req.setValue("application/json", forHTTPHeaderField: "Accept")
+        if let token = sessionToken {
+            req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
+        req.httpBody = data
+        let resp: AvatarUploadResponse = try await send(req)
+        return (resp.url, resp.r2Key)
+    }
+
     // MARK: - Feed
 
     /// Returns one page of feed items + the cursor for the next page.
@@ -333,6 +352,39 @@ nonisolated struct AthleteDTO: Decodable, Hashable {
     /// Unix seconds at start-of-day UTC (or any server-stored instant); nil if unset.
     let dob: TimeInterval?
     let isDemo: Bool
+    // Extended profile fields. All optional so older server builds still
+    // decode cleanly — if the server doesn't ship them they stay nil.
+    let pronouns: String?
+    let websiteUrl: String?
+
+    private enum CodingKeys: String, CodingKey {
+        case id, suiAddress, handle, displayName, avatarTone, bannerTone,
+             verified, tier, totalWorkouts, followers, following, bio,
+             location, photoURL, suinsName, dob, isDemo, pronouns, websiteUrl
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.id = try c.decode(String.self, forKey: .id)
+        self.suiAddress = try c.decodeIfPresent(String.self, forKey: .suiAddress)
+        self.handle = try c.decode(String.self, forKey: .handle)
+        self.displayName = try c.decode(String.self, forKey: .displayName)
+        self.avatarTone = try c.decode(String.self, forKey: .avatarTone)
+        self.bannerTone = try c.decode(String.self, forKey: .bannerTone)
+        self.verified = try c.decode(Bool.self, forKey: .verified)
+        self.tier = try c.decode(String.self, forKey: .tier)
+        self.totalWorkouts = try c.decode(Int.self, forKey: .totalWorkouts)
+        self.followers = try c.decode(Int.self, forKey: .followers)
+        self.following = try c.decode(Int.self, forKey: .following)
+        self.bio = try c.decodeIfPresent(String.self, forKey: .bio)
+        self.location = try c.decodeIfPresent(String.self, forKey: .location)
+        self.photoURL = try c.decodeIfPresent(String.self, forKey: .photoURL)
+        self.suinsName = try c.decodeIfPresent(String.self, forKey: .suinsName)
+        self.dob = try c.decodeIfPresent(TimeInterval.self, forKey: .dob)
+        self.isDemo = try c.decode(Bool.self, forKey: .isDemo)
+        self.pronouns = try c.decodeIfPresent(String.self, forKey: .pronouns)
+        self.websiteUrl = try c.decodeIfPresent(String.self, forKey: .websiteUrl)
+    }
 }
 nonisolated struct AthleteEnvelope: Decodable { let athlete: AthleteDTO }
 
@@ -531,6 +583,11 @@ nonisolated struct WorkoutOnChainResponse: Decodable {
 
 nonisolated struct IdEnvelope: Decodable { let id: String }
 
+nonisolated struct AvatarUploadResponse: Decodable {
+    let url: String
+    let r2Key: String
+}
+
 nonisolated struct EmptyBody: Encodable {}
 nonisolated struct EmptyResponse: Decodable {}
 
@@ -561,6 +618,12 @@ nonisolated struct AthletePatch: Encodable {
     var photoR2Key: String?
     /// Unix seconds; HealthKit age gate (13+).
     var dob: Int?
+    // Extended profile fields. Same trim-empty-to-null encoding as bio/location.
+    var pronouns: String?
+    var websiteUrl: String?
+    /// R2 key from POST /v1/media/avatar. When set the server associates
+    /// the R2 object with this profile and returns the resolved photoURL.
+    var avatarR2Key: String?
 
     init(
         displayName: String? = nil,
@@ -570,7 +633,10 @@ nonisolated struct AthletePatch: Encodable {
         avatarTone: String? = nil,
         bannerTone: String? = nil,
         photoR2Key: String? = nil,
-        dob: Int? = nil
+        dob: Int? = nil,
+        pronouns: String? = nil,
+        websiteUrl: String? = nil,
+        avatarR2Key: String? = nil
     ) {
         self.displayName = displayName
         self.handle = handle
@@ -580,6 +646,49 @@ nonisolated struct AthletePatch: Encodable {
         self.bannerTone = bannerTone
         self.photoR2Key = photoR2Key
         self.dob = dob
+        self.pronouns = pronouns
+        self.websiteUrl = websiteUrl
+        self.avatarR2Key = avatarR2Key
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case displayName, handle, bio, location, avatarTone, bannerTone,
+             photoR2Key, dob, pronouns, websiteUrl, avatarR2Key
+    }
+
+    /// Custom encode so that user-clearable text fields (bio, pronouns,
+    /// location, websiteUrl) encode as explicit JSON `null` when the
+    /// trimmed value is empty. The server treats `null` as "clear this
+    /// field" and a non-null value as "set to this". Fields not provided
+    /// at all (nil) remain unencoded, so other patches don't clobber
+    /// untouched columns.
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+
+        // Clearable free-text fields: empty-string → null, set value → value.
+        func encodeClearable(_ value: String?, forKey key: CodingKeys) throws {
+            guard let value else { return }
+            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed.isEmpty {
+                try c.encodeNil(forKey: key)
+            } else {
+                try c.encode(trimmed, forKey: key)
+            }
+        }
+
+        // Required-but-non-clearable fields: only encode when supplied.
+        // An empty displayName or handle is a validation error, not a clear.
+        if let displayName { try c.encode(displayName, forKey: .displayName) }
+        if let handle { try c.encode(handle, forKey: .handle) }
+        try encodeClearable(bio, forKey: .bio)
+        try encodeClearable(location, forKey: .location)
+        if let avatarTone { try c.encode(avatarTone, forKey: .avatarTone) }
+        if let bannerTone { try c.encode(bannerTone, forKey: .bannerTone) }
+        if let photoR2Key { try c.encode(photoR2Key, forKey: .photoR2Key) }
+        if let dob { try c.encode(dob, forKey: .dob) }
+        try encodeClearable(pronouns, forKey: .pronouns)
+        try encodeClearable(websiteUrl, forKey: .websiteUrl)
+        if let avatarR2Key { try c.encode(avatarR2Key, forKey: .avatarR2Key) }
     }
 }
 

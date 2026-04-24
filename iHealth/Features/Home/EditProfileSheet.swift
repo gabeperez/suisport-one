@@ -9,13 +9,32 @@ struct EditProfileSheet: View {
     @State private var handle: String = ""
     @State private var bio: String = ""
     @State private var location: String = ""
+    @State private var pronouns: String = ""
+    @State private var website: String = ""
     @State private var avatarTone: AvatarTone = .sunset
     @State private var bannerTone: AvatarTone = .sunset
     @State private var photoItem: PhotosPickerItem?
     @State private var photoData: Data?
     @State private var clearPhoto: Bool = false
+    /// R2 key returned by POST /v1/media/avatar after a successful
+    /// upload. Persisted on save so the backend stores it on the
+    /// athlete row + serves it to any device. `clearPhoto` with this
+    /// nil wipes the remote avatar.
+    @State private var uploadedAvatarKey: String?
+    @State private var isUploading: Bool = false
+    @State private var uploadError: String?
+    @State private var isSaving: Bool = false
     @State private var showcase: [UUID] = []
     @State private var showcasePicker = false
+
+    /// Simple URL validity check matching the server's rule:
+    /// non-empty must parse through URL(string:) + have a scheme.
+    private var websiteValid: Bool {
+        let v = website.trimmingCharacters(in: .whitespaces)
+        if v.isEmpty { return true }
+        guard let url = URL(string: v), let scheme = url.scheme else { return false }
+        return scheme == "http" || scheme == "https"
+    }
 
     /// Matches the server's Zod constraint (`/^[a-z0-9_]{2,24}$/`).
     /// Rendered inline under the handle field, and gates Save.
@@ -25,9 +44,14 @@ struct EditProfileSheet: View {
         return trimmed.allSatisfy { $0.isLetter && $0.isLowercase || $0.isNumber || $0 == "_" }
     }
 
-    /// Name is required (any non-whitespace); handle must be valid.
+    /// Name is required (any non-whitespace); handle must be valid;
+    /// website must parse if non-empty. Photo upload in flight also
+    /// blocks save so we never drop the user's new avatar.
     private var isValid: Bool {
-        !displayName.trimmingCharacters(in: .whitespaces).isEmpty && handleValid
+        !displayName.trimmingCharacters(in: .whitespaces).isEmpty
+            && handleValid
+            && websiteValid
+            && !isUploading
     }
 
     var body: some View {
@@ -61,6 +85,15 @@ struct EditProfileSheet: View {
                     .presentationDetents([.large])
                     .presentationCornerRadius(Theme.Radius.xl)
             }
+            .alert("Couldn't upload photo",
+                   isPresented: Binding(
+                       get: { uploadError != nil },
+                       set: { if !$0 { uploadError = nil } }
+                   )) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(uploadError ?? "")
+            }
             .onAppear(perform: load)
             .onChange(of: photoItem) {
                 Task { await loadPhoto() }
@@ -83,6 +116,17 @@ struct EditProfileSheet: View {
                     .clipShape(Circle())
                     .overlay(Circle().strokeBorder(Color.white.opacity(0.8), lineWidth: 3))
                     .shadow(color: .black.opacity(0.2), radius: 16, y: 8)
+                // While the server upload is in flight, dim + spinner
+                // so the user understands Save will be blocked until
+                // the upload settles.
+                if isUploading {
+                    Circle()
+                        .fill(.black.opacity(0.4))
+                        .frame(width: 110, height: 110)
+                    ProgressView()
+                        .progressViewStyle(.circular)
+                        .tint(.white)
+                }
             }
 
             HStack(spacing: 8) {
@@ -198,6 +242,16 @@ struct EditProfileSheet: View {
             }
             field(title: "Location", text: $location, placeholder: "Brooklyn, NY",
                   system: "mappin.circle", limit: 40)
+            field(title: "Pronouns", text: $pronouns,
+                  placeholder: "she/her, he/him, they/them",
+                  system: "person.fill", limit: 40)
+            VStack(alignment: .leading, spacing: 4) {
+                field(title: "Website", text: $website,
+                      placeholder: "https://your.link",
+                      system: "link", limit: 120, lowercased: false,
+                      autocap: .never)
+                websiteHint
+            }
             VStack(alignment: .leading, spacing: 6) {
                 Text("Bio")
                     .font(.labelBold).foregroundStyle(Theme.Color.inkSoft)
@@ -215,6 +269,21 @@ struct EditProfileSheet: View {
             }
             .padding(Theme.Space.md)
             .background(RoundedRectangle(cornerRadius: Theme.Radius.lg).fill(Theme.Color.bgElevated))
+        }
+    }
+
+    @ViewBuilder
+    private var websiteHint: some View {
+        let trimmed = website.trimmingCharacters(in: .whitespaces)
+        if !trimmed.isEmpty && !websiteValid {
+            HStack(spacing: 4) {
+                Image(systemName: "exclamationmark.circle.fill")
+                    .font(.system(size: 10, weight: .bold))
+                Text("Needs http:// or https://")
+                    .font(.system(size: 11, weight: .semibold, design: .rounded))
+            }
+            .foregroundStyle(Theme.Color.hot)
+            .padding(.horizontal, Theme.Space.md)
         }
     }
 
@@ -263,7 +332,8 @@ struct EditProfileSheet: View {
                        placeholder: String,
                        system: String?,
                        limit: Int,
-                       lowercased: Bool = false) -> some View {
+                       lowercased: Bool = false,
+                       autocap: TextInputAutocapitalization = .words) -> some View {
         HStack(spacing: 10) {
             if let system {
                 Image(systemName: system)
@@ -277,7 +347,7 @@ struct EditProfileSheet: View {
                     .foregroundStyle(Theme.Color.inkSoft)
                 TextField(placeholder, text: text)
                     .font(.bodyL)
-                    .textInputAutocapitalization(lowercased ? .never : .words)
+                    .textInputAutocapitalization(lowercased ? .never : autocap)
                     .autocorrectionDisabled(lowercased)
                     .onChange(of: text.wrappedValue) { _, newValue in
                         var v = newValue
@@ -396,17 +466,67 @@ struct EditProfileSheet: View {
         handle = me.handle
         bio = me.bio ?? ""
         location = me.location ?? ""
+        pronouns = me.pronouns ?? ""
+        website = me.websiteUrl ?? ""
         avatarTone = me.avatarTone
         bannerTone = me.bannerTone
         showcase = me.showcasedTrophyIDs
     }
 
+    /// When the PhotosPicker fires, we do two things:
+    ///   1. Stash the raw bytes locally for preview render (photoData).
+    ///   2. Downscale + re-encode as JPEG and upload via POST /v1/media/avatar.
+    /// The resulting R2 key is saved on save(); if the upload fails we
+    /// surface an alert and leave the local preview in place so the user
+    /// can retry by picking the photo again.
     private func loadPhoto() async {
         guard let item = photoItem else { return }
-        if let data = try? await item.loadTransferable(type: Data.self) {
-            photoData = data
-            clearPhoto = false
+        guard let raw = try? await item.loadTransferable(type: Data.self) else { return }
+        photoData = raw
+        clearPhoto = false
+        uploadedAvatarKey = nil
+        await uploadPickedPhoto(raw)
+    }
+
+    private func uploadPickedPhoto(_ raw: Data) async {
+        isUploading = true
+        defer { isUploading = false }
+        // Downscale to 1024 px max edge + re-encode as JPEG 0.85.
+        // Strips EXIF as a side effect, and keeps every upload well
+        // under the 5 MB server cap.
+        let encoded = Self.jpegAtMaxEdge(raw, maxEdge: 1024, quality: 0.85) ?? raw
+        do {
+            let (_, key) = try await APIClient.shared.uploadAvatar(
+                data: encoded, mime: "image/jpeg"
+            )
+            uploadedAvatarKey = key
+        } catch {
+            uploadError = (error as? APIError).map { err in
+                switch err {
+                case .notImplemented: return "Upload not available."
+                case .transport(let e): return e.localizedDescription
+                case .server(let code, let msg):
+                    return msg.isEmpty ? "Server error (\(code))" : msg
+                }
+            } ?? error.localizedDescription
         }
+    }
+
+    /// CoreGraphics-based downscale → JPEG. Done inline so we don't
+    /// carry a 12 MP HEIC through the upload pipeline.
+    private static func jpegAtMaxEdge(
+        _ data: Data, maxEdge: CGFloat, quality: CGFloat
+    ) -> Data? {
+        guard let src = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
+        let opts: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceThumbnailMaxPixelSize: maxEdge,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+        ]
+        guard let cg = CGImageSourceCreateThumbnailAtIndex(src, 0, opts as CFDictionary)
+        else { return nil }
+        let ui = UIImage(cgImage: cg)
+        return ui.jpegData(compressionQuality: quality)
     }
 
     private func save() {
@@ -424,7 +544,10 @@ struct EditProfileSheet: View {
             avatarTone: avatarTone,
             bannerTone: bannerTone,
             photoData: photoChange,
-            showcasedTrophyIDs: Array(showcase.prefix(3))
+            showcasedTrophyIDs: Array(showcase.prefix(3)),
+            pronouns: pronouns,
+            websiteUrl: website,
+            avatarR2Key: clearPhoto ? "" : uploadedAvatarKey
         )
         Haptics.success()
         dismiss()

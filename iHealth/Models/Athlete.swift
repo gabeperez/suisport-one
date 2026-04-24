@@ -23,6 +23,12 @@ struct Athlete: Identifiable, Hashable, Codable {
     var showcasedTrophyIDs: [UUID] = []     // up to 3 pinned trophies
     var location: String? = nil             // optional "Brooklyn, NY"
     var suinsName: String? = nil            // "alice.sui" if the address owns one
+    var pronouns: String? = nil             // "she/her", "they/them", etc.
+    var websiteUrl: String? = nil           // personal site / Linktree
+    /// Remote avatar URL served by the backend after a /media/avatar upload.
+    /// Preferred over `photoData` when present — clients can render it
+    /// async without carrying bytes around.
+    var photoURL: String? = nil
 
     static func preview(_ handle: String, name: String, tier: AthleteTier = .starter,
                         verified: Bool = false) -> Athlete {

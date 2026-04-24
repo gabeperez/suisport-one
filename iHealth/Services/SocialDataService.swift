@@ -337,7 +337,10 @@ final class SocialDataService {
         avatarTone: AvatarTone? = nil,
         bannerTone: AvatarTone? = nil,
         photoData: Data?? = nil,                     // double-optional: nil means "no change", .some(nil) means "clear"
-        showcasedTrophyIDs: [UUID]? = nil
+        showcasedTrophyIDs: [UUID]? = nil,
+        pronouns: String? = nil,
+        websiteUrl: String? = nil,
+        avatarR2Key: String? = nil
     ) {
         guard var current = me else { return }
         if let v = displayName?.trimmingCharacters(in: .whitespaces), !v.isEmpty {
@@ -351,6 +354,12 @@ final class SocialDataService {
         }
         if let v = location {
             current.location = v.trimmingCharacters(in: .whitespaces).isEmpty ? nil : v
+        }
+        if let v = pronouns {
+            current.pronouns = v.trimmingCharacters(in: .whitespaces).isEmpty ? nil : v
+        }
+        if let v = websiteUrl {
+            current.websiteUrl = v.trimmingCharacters(in: .whitespaces).isEmpty ? nil : v
         }
         if let tone = avatarTone { current.avatarTone = tone }
         if let tone = bannerTone { current.bannerTone = tone }
@@ -374,11 +383,34 @@ final class SocialDataService {
             location: location,
             avatarTone: avatarTone?.rawValue,
             bannerTone: bannerTone?.rawValue,
-            photoR2Key: nil
+            photoR2Key: nil,
+            pronouns: pronouns,
+            websiteUrl: websiteUrl,
+            avatarR2Key: avatarR2Key
         )
-        Task.detached {
-            _ = try? await APIClient.shared.updateMe(patch)
+        Task.detached { [weak self] in
+            if let updated = try? await APIClient.shared.updateMe(patch) {
+                await self?.applyMePatch(updated)
+            }
         }
+    }
+
+    /// Merge a fresh AthleteDTO response into `me` without stomping on
+    /// local-only UI state (photoData bytes, showcase selections). Called
+    /// after a successful PATCH /v1/me so the server's canonical values
+    /// (including any trimmed / normalized fields) land in the model.
+    private func applyMePatch(_ dto: AthleteDTO) {
+        guard var current = me else { return }
+        current.displayName = dto.displayName
+        current.handle = dto.handle
+        current.bio = dto.bio
+        current.location = dto.location
+        current.pronouns = dto.pronouns
+        current.websiteUrl = dto.websiteUrl
+        current.photoURL = dto.photoURL
+        if let tone = AvatarTone(rawValue: dto.avatarTone) { current.avatarTone = tone }
+        if let tone = AvatarTone(rawValue: dto.bannerTone) { current.bannerTone = tone }
+        self.me = current
     }
 
     func retireShoe(_ id: UUID) {

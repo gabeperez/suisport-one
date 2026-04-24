@@ -9,7 +9,12 @@ export type Env = {
     ENOKI_SECRET_KEY?: string;
     // Optional — when present, /v1/attestation/register enforces real
     // App Attest verification; otherwise it accepts but flags.
+    // Format: "<TEAM_ID>.<BUNDLE_ID>", e.g. "ABCDE12345.gimme.coffee.iHealth"
     APPATTEST_APP_ID?: string;
+    // "production" | "development". Selects the expected aaguid in
+    // authData: production = "appattest" + 7 null bytes; development
+    // = "appattestdevelop". Defaults to production when unset.
+    APPATTEST_ENV?: "production" | "development";
     // "true" → mutating routes require a valid App Attest assertion.
     // Anything else (default) → accept requests without assertion
     // headers so existing clients continue working through the beta.

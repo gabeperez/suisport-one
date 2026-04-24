@@ -98,18 +98,76 @@ final class WalletConnectBridge {
     private func pasteBackSheet(
         challenge: WalletChallengeResponse
     ) async throws -> SignedChallenge {
-        try await withCheckedThrowingContinuation { cont in
+        // Wait until the ASWebAuthenticationSession's container has
+        // fully dismissed. Presenting straight after its completion
+        // handler races the out-animation — the view is still tagged
+        // as topMost but isn't in the window hierarchy, so present()
+        // silently fails and the continuation leaks.
+        for _ in 0..<20 {                       // up to ~1s
+            if let vc = Self.topMost,
+               vc.isBeingDismissed == false,
+               vc.view.window != nil {
+                break
+            }
+            try? await Task.sleep(nanoseconds: 50_000_000)
+        }
+
+        return try await withCheckedThrowingContinuation { cont in
+            // Belt-and-suspenders: capture the continuation into a
+            // box so present()'s completion can resume it on failure.
+            let box = ContinuationBox(cont)
             let host = UIHostingController(rootView: WalletConnectSheet(
                 challenge: challenge,
-                onCompleted: { signed in cont.resume(returning: signed) },
-                onCancel: { cont.resume(throwing: Cancelled()) }
+                onCompleted: { signed in box.resume(.success(signed)) },
+                onCancel: { box.resume(.failure(Cancelled())) },
+                challengeURL: Self.bridgeURL(for: challenge)
             ))
             host.modalPresentationStyle = .formSheet
-            Self.topMost?.present(host, animated: true)
+
+            guard let presenter = Self.topMost, presenter.view.window != nil else {
+                box.resume(.failure(Cancelled()))
+                return
+            }
+            presenter.present(host, animated: true) { [weak host] in
+                if host?.view.window == nil {
+                    // Present silently no-op'd (edge case).
+                    box.resume(.failure(Cancelled()))
+                }
+            }
         }
     }
 
+    /// Public URL of the hosted bridge page for a given challenge.
+    /// Used both by the ASWebAuthenticationSession path AND the
+    /// "Open in Safari" escape hatch on the paste-back sheet.
+    static func bridgeURL(for challenge: WalletChallengeResponse) -> URL {
+        var comps = URLComponents(string:
+            "https://suisport-api.perez-jg22.workers.dev/wallet-connect")!
+        comps.queryItems = [
+            URLQueryItem(name: "challengeId", value: challenge.challengeId),
+            URLQueryItem(name: "nonce", value: challenge.nonce),
+            URLQueryItem(name: "returnScheme", value: "suisport"),
+        ]
+        return comps.url!
+    }
+
     struct Cancelled: Error {}
+
+    /// Guards against double-resume + silent drop of a checked
+    /// continuation. Both success and failure paths go through
+    /// `resume(_:)`; subsequent calls are ignored.
+    private final class ContinuationBox {
+        private var cont: CheckedContinuation<SignedChallenge, Error>?
+        init(_ c: CheckedContinuation<SignedChallenge, Error>) { self.cont = c }
+        func resume(_ result: Result<SignedChallenge, Error>) {
+            guard let c = cont else { return }
+            cont = nil
+            switch result {
+            case .success(let v): c.resume(returning: v)
+            case .failure(let e): c.resume(throwing: e)
+            }
+        }
+    }
 
     private static var topMost: UIViewController? {
         let scene = UIApplication.shared.connectedScenes
@@ -146,6 +204,10 @@ struct WalletConnectSheet: View {
     let challenge: WalletChallengeResponse
     let onCompleted: (WalletConnectBridge.SignedChallenge) -> Void
     let onCancel: () -> Void
+    /// Hosted bridge URL for the "Open in Safari" / "Try Slush app"
+    /// escape hatches. Set by the presenter; nil means both buttons
+    /// are hidden.
+    var challengeURL: URL? = nil
 
     @State private var address = ""
     @State private var signature = ""
@@ -153,6 +215,7 @@ struct WalletConnectSheet: View {
     @State private var copied = false
     @State private var showAdvanced = false
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.openURL) private var openURL
 
     private let suiBlue = Color(red: 0.13, green: 0.45, blue: 0.86)
     private let suiBlueSoft = Color(red: 0.13, green: 0.45, blue: 0.86).opacity(0.12)
@@ -162,6 +225,7 @@ struct WalletConnectSheet: View {
             ScrollView {
                 VStack(spacing: Theme.Space.md) {
                     hero
+                    if challengeURL != nil { quickActions }
                     step1Card
                     step2Card
                     advancedCard
@@ -213,6 +277,79 @@ struct WalletConnectSheet: View {
         }
         .frame(maxWidth: .infinity)
         .padding(.top, Theme.Space.md)
+    }
+
+    // MARK: - Quick actions
+    //
+    // Two top-of-sheet affordances that try to reach a real signing
+    // surface without the user having to copy/paste:
+    //   1. Open in Safari → full UIApplication.open of the hosted
+    //      bridge URL. Mobile Safari can see installed wallet
+    //      extensions + Slush's universal link, so detection works
+    //      in contexts the ephemeral ASWebAuthenticationSession
+    //      blocks. Safari redirects back to `suisport://…` when the
+    //      wallet returns a signature, which re-enters this app.
+    //   2. Open Slush app → attempt the Slush mobile universal link.
+    //      If Slush is installed, iOS switches apps + surfaces a
+    //      sign prompt. If not, the URL silently falls back to a
+    //      web page.
+    //
+    // Both skip the paste-back entirely when successful.
+    private var quickActions: some View {
+        VStack(spacing: 10) {
+            if let url = challengeURL {
+                Button {
+                    Haptics.tap()
+                    openURL(url)    // mobile Safari
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: "safari.fill")
+                            .font(.system(size: 15, weight: .bold))
+                        Text("Open in Safari")
+                            .font(.system(size: 15, weight: .semibold, design: .rounded))
+                        Spacer()
+                        Image(systemName: "arrow.up.right.square")
+                            .font(.system(size: 12, weight: .bold))
+                    }
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 14).padding(.vertical, 12)
+                    .background(Capsule().fill(suiBlue))
+                }
+                .buttonStyle(.plain)
+            }
+            Button {
+                Haptics.tap()
+                let msg = challenge.nonce.data(using: .utf8)?
+                    .base64EncodedString()
+                    .replacingOccurrences(of: "+", with: "-")
+                    .replacingOccurrences(of: "/", with: "_")
+                    .replacingOccurrences(of: "=", with: "") ?? ""
+                // Best-effort deep link to Slush's native app. If
+                // installed, it handles the message and returns via
+                // universal link; if not, iOS silently no-ops.
+                if let url = URL(string: "https://slush.app/sign?message=\(msg)&return=suisport%3A%2F%2Fwallet-connect-callback") {
+                    openURL(url)
+                }
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "arrow.up.right.circle.fill")
+                        .font(.system(size: 15, weight: .bold))
+                    Text("Try Slush app")
+                        .font(.system(size: 15, weight: .semibold, design: .rounded))
+                    Spacer()
+                }
+                .foregroundStyle(Theme.Color.ink)
+                .padding(.horizontal, 14).padding(.vertical, 12)
+                .background(Capsule().fill(Theme.Color.bgElevated))
+                .overlay(Capsule().strokeBorder(Theme.Color.stroke, lineWidth: 1))
+            }
+            .buttonStyle(.plain)
+            Text("Or copy the nonce below and sign in any Sui wallet — paste the result back when done.")
+                .font(.caption)
+                .foregroundStyle(Theme.Color.inkFaint)
+                .multilineTextAlignment(.center)
+                .padding(.top, 2)
+        }
     }
 
     // MARK: - Step cards

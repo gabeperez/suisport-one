@@ -286,9 +286,13 @@ final class SocialDataService {
             nickname: shoe.nickname, tone: tone.rawValue,
             milesTotal: milesTotal
         )
-        Task.detached { [weak self] in
+        // Task (not .detached) inherits MainActor isolation from the
+        // caller, so `self` capture is safe and we don't need a nested
+        // MainActor.run hop.
+        Task { [weak self] in
+            guard let self else { return }
             if let serverId = try? await APIClient.shared.addShoe(req) {
-                await MainActor.run { self?.shoeApiIds[localId] = serverId }
+                self.shoeApiIds[localId] = serverId
             }
         }
     }
@@ -319,9 +323,10 @@ final class SocialDataService {
             tagline: club.tagline, description: club.description,
             heroTone: tone.rawValue, tags: []
         )
-        Task.detached { [weak self] in
+        Task { [weak self] in
+            guard let self else { return }
             if let serverId = try? await APIClient.shared.createClub(req) {
-                await MainActor.run { self?.clubApiIds[localId] = serverId }
+                self.clubApiIds[localId] = serverId
             }
         }
     }

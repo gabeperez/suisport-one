@@ -249,7 +249,7 @@ enum APIError: Error {
 
 // MARK: - DTOs (match the Worker's db.ts mappers one-to-one)
 
-struct AthleteDTO: Decodable, Hashable {
+nonisolated struct AthleteDTO: Decodable, Hashable {
     let id: String                // user_id (server-assigned UUID)
     let suiAddress: String?       // Sui chain address, if signed in via zkLogin
     let handle: String
@@ -267,9 +267,9 @@ struct AthleteDTO: Decodable, Hashable {
     let suinsName: String?
     let isDemo: Bool
 }
-struct AthleteEnvelope: Decodable { let athlete: AthleteDTO }
+nonisolated struct AthleteEnvelope: Decodable { let athlete: AthleteDTO }
 
-struct WorkoutDTO: Decodable, Hashable {
+nonisolated struct WorkoutDTO: Decodable, Hashable {
     let id: String
     let athleteId: String
     let type: String
@@ -284,7 +284,7 @@ struct WorkoutDTO: Decodable, Hashable {
     let isDemo: Bool
 }
 
-struct FeedItemDTO: Decodable, Hashable, Identifiable {
+nonisolated struct FeedItemDTO: Decodable, Hashable, Identifiable {
     let id: String
     let athlete: AthleteDTO
     let workout: WorkoutDTO
@@ -297,9 +297,9 @@ struct FeedItemDTO: Decodable, Hashable, Identifiable {
     let isDemo: Bool
     let createdAt: TimeInterval
 }
-struct FeedEnvelope: Decodable { let items: [FeedItemDTO] }
+nonisolated struct FeedEnvelope: Decodable { let items: [FeedItemDTO] }
 
-struct ClubDTO: Decodable, Hashable, Identifiable {
+nonisolated struct ClubDTO: Decodable, Hashable, Identifiable {
     let id: String
     let handle: String
     let name: String
@@ -313,9 +313,9 @@ struct ClubDTO: Decodable, Hashable, Identifiable {
     let tags: [String]
     let isDemo: Bool
 }
-struct ClubsEnvelope: Decodable { let clubs: [ClubDTO] }
+nonisolated struct ClubsEnvelope: Decodable { let clubs: [ClubDTO] }
 
-struct ChallengeDTO: Decodable, Hashable, Identifiable {
+nonisolated struct ChallengeDTO: Decodable, Hashable, Identifiable {
     let id: String
     let title: String
     let subtitle: String?
@@ -330,9 +330,9 @@ struct ChallengeDTO: Decodable, Hashable, Identifiable {
     let endsAt: TimeInterval
     let isDemo: Bool
 }
-struct ChallengesEnvelope: Decodable { let challenges: [ChallengeDTO] }
+nonisolated struct ChallengesEnvelope: Decodable { let challenges: [ChallengeDTO] }
 
-struct SegmentDTO: Decodable, Hashable, Identifiable {
+nonisolated struct SegmentDTO: Decodable, Hashable, Identifiable {
     let id: String
     let name: String
     let location: String?
@@ -343,9 +343,9 @@ struct SegmentDTO: Decodable, Hashable, Identifiable {
     let komTimeSeconds: Int?
     let isDemo: Bool
 }
-struct SegmentsEnvelope: Decodable { let segments: [SegmentDTO] }
+nonisolated struct SegmentsEnvelope: Decodable { let segments: [SegmentDTO] }
 
-struct TrophyDTO: Decodable, Hashable, Identifiable {
+nonisolated struct TrophyDTO: Decodable, Hashable, Identifiable {
     let id: String
     let title: String
     let subtitle: String?
@@ -359,9 +359,9 @@ struct TrophyDTO: Decodable, Hashable, Identifiable {
     let showcaseIndex: Int?
     let isDemo: Bool
 }
-struct TrophiesEnvelope: Decodable { let trophies: [TrophyDTO] }
+nonisolated struct TrophiesEnvelope: Decodable { let trophies: [TrophyDTO] }
 
-struct ShoeDTO: Decodable, Hashable, Identifiable {
+nonisolated struct ShoeDTO: Decodable, Hashable, Identifiable {
     let id: String
     let athleteId: String
     let brand: String
@@ -374,9 +374,9 @@ struct ShoeDTO: Decodable, Hashable, Identifiable {
     let startedAt: TimeInterval
     let isDemo: Bool
 }
-struct ShoesEnvelope: Decodable { let shoes: [ShoeDTO] }
+nonisolated struct ShoesEnvelope: Decodable { let shoes: [ShoeDTO] }
 
-struct PRDTO: Decodable, Hashable, Identifiable {
+nonisolated struct PRDTO: Decodable, Hashable, Identifiable {
     var id: String { label }
     let label: String
     let distanceMeters: Double
@@ -384,9 +384,9 @@ struct PRDTO: Decodable, Hashable, Identifiable {
     let achievedAt: TimeInterval?
     let isDemo: Bool
 }
-struct PRsEnvelope: Decodable { let prs: [PRDTO] }
+nonisolated struct PRsEnvelope: Decodable { let prs: [PRDTO] }
 
-struct SweatEnvelope: Decodable {
+nonisolated struct SweatEnvelope: Decodable {
     let sweat: SweatPayload
     let streak: StreakPayload?
     struct SweatPayload: Decodable { let total: Int; let weekly: Int }
@@ -399,9 +399,9 @@ struct SweatEnvelope: Decodable {
     }
 }
 
-struct HealthResponse: Decodable { let ok: Bool; let ts: Double; let demoSeeded: Bool }
+nonisolated struct HealthResponse: Decodable { let ok: Bool; let ts: Double; let demoSeeded: Bool }
 
-struct SuiStatusResponse: Decodable {
+nonisolated struct SuiStatusResponse: Decodable {
     let network: String
     let configured: Bool
     let packageId: String?
@@ -414,13 +414,13 @@ struct SuiStatusResponse: Decodable {
     let explorerUrl: String
 }
 
-struct SweatBalanceResponse: Decodable {
+nonisolated struct SweatBalanceResponse: Decodable {
     let address: String
     let raw: String
     let display: String
 }
 
-struct WorkoutOnChainResponse: Decodable {
+nonisolated struct WorkoutOnChainResponse: Decodable {
     let workoutId: String
     let verified: Bool
     let walrusBlobId: String?
@@ -430,19 +430,19 @@ struct WorkoutOnChainResponse: Decodable {
     let sweatMinted: Int
 }
 
-struct IdEnvelope: Decodable { let id: String }
+nonisolated struct IdEnvelope: Decodable { let id: String }
 
-struct EmptyBody: Encodable {}
-struct EmptyResponse: Decodable {}
+nonisolated struct EmptyBody: Encodable {}
+nonisolated struct EmptyResponse: Decodable {}
 
 // MARK: - Request bodies
 
-struct AuthExchangeRequest: Encodable {
+nonisolated struct AuthExchangeRequest: Encodable {
     let provider: String
     let idToken: String
     let displayName: String?
 }
-struct AuthExchangeResponse: Decodable {
+nonisolated struct AuthExchangeResponse: Decodable {
     let sessionJwt: String
     let userId: String?           // Server-assigned stable UUID
     let suiAddress: String        // On-chain identity
@@ -452,7 +452,7 @@ struct AuthExchangeResponse: Decodable {
     let verified: Bool?
 }
 
-struct AthletePatch: Encodable {
+nonisolated struct AthletePatch: Encodable {
     var displayName: String?
     var handle: String?
     var bio: String?
@@ -462,13 +462,13 @@ struct AthletePatch: Encodable {
     var photoR2Key: String?
 }
 
-struct ReportRequest: Encodable {
+nonisolated struct ReportRequest: Encodable {
     let feedItemId: String?
     let athleteId: String?
     let reason: String
 }
 
-struct CreateClubRequest: Encodable {
+nonisolated struct CreateClubRequest: Encodable {
     let name: String
     let handle: String
     let tagline: String?
@@ -477,7 +477,7 @@ struct CreateClubRequest: Encodable {
     let tags: [String]?
 }
 
-struct AddShoeRequest: Encodable {
+nonisolated struct AddShoeRequest: Encodable {
     let brand: String
     let model: String
     let nickname: String?
@@ -485,7 +485,7 @@ struct AddShoeRequest: Encodable {
     let milesTotal: Double
 }
 
-struct SubmitWorkoutRequest: Encodable {
+nonisolated struct SubmitWorkoutRequest: Encodable {
     let type: String
     let startDate: TimeInterval
     let durationSeconds: TimeInterval
@@ -498,7 +498,7 @@ struct SubmitWorkoutRequest: Encodable {
     let caption: String?
 }
 
-struct SubmitWorkoutResponse: Decodable {
+nonisolated struct SubmitWorkoutResponse: Decodable {
     let workoutId: String
     let feedItemId: String
     let pointsMinted: Int

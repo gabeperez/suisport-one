@@ -875,14 +875,14 @@ struct AdvancedSheet: View {
     }
 
     private func loadOnChain() async {
+        // Read the current user off the MainActor up front so the async
+        // closures below don't need to hop back for the property access.
+        let addr = app.currentUser?.suiAddress
         async let s = try? await APIClient.shared.fetchSuiStatus()
-        async let b: SweatBalanceResponse? = {
-            guard let addr = app.currentUser?.suiAddress else { return nil }
-            return try? await APIClient.shared.fetchSweatBalance(address: addr)
-        }()
-        let (resolvedStatus, resolvedBalance) = await (s, b)
-        status = resolvedStatus
-        balance = resolvedBalance
+        status = await s
+        if let addr {
+            balance = try? await APIClient.shared.fetchSweatBalance(address: addr)
+        }
     }
 
     private static func shortenAddress(_ addr: String) -> String {

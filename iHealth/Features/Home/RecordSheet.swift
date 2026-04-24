@@ -5,6 +5,7 @@ import SwiftUI
 struct RecordSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var selected: WorkoutType?
+    @State private var liveFor: WorkoutType?
 
     var body: some View {
         VStack(alignment: .leading, spacing: Theme.Space.lg) {
@@ -39,13 +40,19 @@ struct RecordSheet: View {
                 tint: selected == nil ? Theme.Color.bgElevated : Theme.Color.ink,
                 fg: selected == nil ? Theme.Color.inkFaint : Theme.Color.inkInverse
             ) {
-                guard selected != nil else { return }
-                dismiss()
-                // WorkoutRecorder live UI not yet wired; placeholder.
+                guard let t = selected else { return }
+                liveFor = t
             }
             .disabled(selected == nil)
         }
         .padding(.horizontal, Theme.Space.lg)
         .padding(.bottom, Theme.Space.lg)
+        .fullScreenCover(item: $liveFor) { t in
+            LiveRecorderView(type: t)
+        }
     }
+}
+
+extension WorkoutType: Identifiable {
+    public var id: String { rawValue }
 }

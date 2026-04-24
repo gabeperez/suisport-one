@@ -3,7 +3,7 @@
 What we've already shipped is in `FRIENDS_BETA.md`. Everything below is
 what still needs doing, grouped by who has to do it.
 
-**Last updated:** 2026-04-24
+**Last updated:** 2026-04-24 (post-moderation pass)
 
 ---
 
@@ -179,11 +179,14 @@ Instead of writing our own Sui event subscriber, use Shinami or Mysten's
 hosted indexer. Hook into our D1 so feed cards can show the verified
 tx digest + mint count.
 
-### 2.10 — Moderation review queue
-`POST /v1/report` writes to `reports` but no one sees it. Add a
-dashboard view that lists open reports, a field to mark
-`resolved_at`, and an action to soft-delete the reported feed item.
-Until this exists, reports are write-only.
+### 2.10 — ~~Moderation review queue~~ ✅ SHIPPED
+Migration 0007 added `reports.resolved_at / resolution_note /
+resolved_by`. Admin endpoints: `GET /v1/admin/reports`,
+`POST /v1/admin/reports/:id/resolve`, suspend/unsuspend athletes.
+`GET /v1/admin/dashboard` is a self-contained HTML page behind
+`X-Admin-Token`. Feed + `/athletes` filter out suspended athletes.
+*Future polish*: Slack webhook on new reports, auto-escalation by
+reason count, shadow-ban (reports still accept, nobody sees).
 
 ### 2.11 — Missing iOS UI refinements
 Known but not shipped:
@@ -208,20 +211,20 @@ Watch-only). Design is mostly decided — start/pause/stop + metric row.
   Rate-limiting (60 req/min) + auth-gated mutations mitigate but don't
   fully prevent scraping of public GET endpoints. Custom domain + CF
   WAF rules when you're serious.
-- **Canonical-hash dedup uses minute-granularity.** Two distinct
-  workouts starting in the same minute with identical duration/distance
-  would falsely collide. In practice this is near-impossible for real
-  data, but it's a theoretical edge case.
+- ~~**Canonical-hash dedup uses minute-granularity.**~~ ✅ FIXED —
+  hash now buckets energy_kcal (25 kcal) + avg_heart_rate (5 bpm) in
+  addition to start-minute + duration + distance. Two distinct workouts
+  won't false-collide in practice.
 - **Mock Enoki returns predictable addresses.** Anyone can generate the
   same fake Sui address by SHA-256 hashing a known id_token. Not a
   real problem until mock auth is on a URL that anyone can hit — if you
   invite friends, the mock address is fine; if you open the URL wider,
   switch to 1.5 first.
-- **No ban/unban.** If someone's identified as abusive, you'd have to
-  manually `DELETE FROM athletes WHERE id = '0x...'` in D1. Build a
-  soft-ban flow before your first moderation incident.
-- **No age verification** beyond HealthKit's 13+ requirement. The
-  privacy policy says 13+; nothing in the app enforces it.
+- ~~**No ban/unban.**~~ ✅ FIXED — `POST /v1/admin/athletes/:id/suspend|unsuspend`
+  plus the admin dashboard flip it. Feed filters out suspended content.
+- ~~**No age verification**~~ ✅ FIXED — age-gate onboarding step
+  captures DOB, blocks under 13, PATCHes server with `dob` for
+  compliance record.
 
 ---
 
@@ -254,3 +257,4 @@ Watch-only). Design is mostly decided — start/pause/stop + metric row.
 | Anti-fraud baseline (hash dedup + velocity + pace + points cap) | scope #2 | `cloudflare/src/fraud.ts` |
 | Privacy + Terms templates | scope #2 | `legal/` |
 | This TODO | scope #2 | `TODO.md` |
+| Moderation queue + soft-ban + age gate + canonical-hash hardening | scope #3 | `cloudflare/migrations/0007_*`, `cloudflare/src/routes/admin.ts`, `iHealth/Features/Onboarding/AgeGateScreen.swift`, `cloudflare/src/fraud.ts` |

@@ -152,6 +152,55 @@ admin.post("/admin/athletes/:id/unsuspend", async (c) => {
     return c.json({ ok: true, unsuspended: (res.meta.changes ?? 0) > 0 });
 });
 
+admin.get("/admin/suspended", async (c) => {
+    const rows = await c.env.DB.prepare(
+        `SELECT id, user_id, handle, display_name, suspended_at, suspended_reason
+         FROM athletes
+         WHERE suspended_at IS NOT NULL
+         ORDER BY suspended_at DESC
+         LIMIT 200`
+    ).all<Record<string, unknown>>();
+    return c.json({ athletes: rows.results ?? [] });
+});
+
+// ---------- On-chain pipeline ----------
+
+admin.get("/admin/onchain-pending", async (c) => {
+    // Surfaces workouts whose submit_workout failed at POST time
+    // AND haven't been reconciled by the cron yet. Either they're
+    // early in the backoff window or they hit MAX_RETRIES and have
+    // parked. Ordering: most retried first (most painful, likely
+    // needs manual intervention).
+    const rows = await c.env.DB.prepare(
+        `SELECT w.id, w.athlete_id, a.handle AS athlete_handle,
+                w.type, w.start_date, w.points, w.walrus_blob_id,
+                w.onchain_retry_count, w.onchain_last_retry_at,
+                w.onchain_last_error
+         FROM workouts w
+         LEFT JOIN athletes a ON a.id = w.athlete_id
+         WHERE w.sui_tx_digest LIKE 'pending_%'
+         ORDER BY w.onchain_retry_count DESC, w.start_date ASC
+         LIMIT 100`
+    ).all<Record<string, unknown>>();
+    return c.json({ workouts: rows.results ?? [] });
+});
+
+admin.get("/admin/attest-keys", async (c) => {
+    // App Attest keys by verification status. Pre-hardening keys
+    // have cert_chain_ok=0 and can no longer sign assertions (see
+    // verifyAssertion refusal path). Admin sees who needs to
+    // re-attest so we can nudge those users in-app.
+    const rows = await c.env.DB.prepare(
+        `SELECT k.key_id, k.athlete_id, a.handle AS athlete_handle,
+                k.cert_chain_ok, k.counter, k.last_used_at
+         FROM app_attest_keys k
+         LEFT JOIN athletes a ON a.id = k.athlete_id
+         ORDER BY k.cert_chain_ok ASC, k.last_used_at DESC
+         LIMIT 200`
+    ).all<Record<string, unknown>>();
+    return c.json({ keys: rows.results ?? [] });
+});
+
 // ---------- Admin HTML dashboard ----------
 //
 // A minimal protected HTML page for reviewing reports + suspending
@@ -235,6 +284,10 @@ const dashboardHtml = `<!doctype html>
         <div id="reports"></div>
         <h2 style="font-size:16px;margin:18px 0 8px">Suspended athletes</h2>
         <div id="suspended"></div>
+        <h2 style="font-size:16px;margin:18px 0 8px">On-chain pipeline — stuck workouts</h2>
+        <div id="onchain-pending"></div>
+        <h2 style="font-size:16px;margin:18px 0 8px">App Attest keys</h2>
+        <div id="attest-keys"></div>
     </div>
 <script>
     let token = "";
@@ -284,11 +337,57 @@ const dashboardHtml = `<!doctype html>
               </div>
             </div>\`).join("");
 
-        const suspRes = await (await api("/v1/admin/reports?status=resolved")).json();
-        // (no dedicated suspended-athletes endpoint yet; reuse status count)
-        document.getElementById("suspended").innerHTML = s.suspendedAthletes === 0
-            ? '<div class="empty">None — clean shop.</div>'
-            : \`<div class="card">\${s.suspendedAthletes} athletes are currently suspended. Use POST /v1/admin/athletes/:id/unsuspend to restore.</div>\`;
+        const { athletes: suspendedList } = await (await api("/v1/admin/suspended")).json();
+        const suspEl = document.getElementById("suspended");
+        if (!suspendedList.length) suspEl.innerHTML = '<div class="empty">None — clean shop.</div>';
+        else suspEl.innerHTML = suspendedList.map(a => \`
+            <div class="card">
+              <div class="row">
+                <div style="flex:1">
+                  <div><strong>\${a.display_name || a.handle || a.id}</strong>
+                    <span class="meta">@\${a.handle || "—"}</span></div>
+                  <div class="meta">suspended \${new Date(a.suspended_at*1000).toLocaleString()}
+                    \${a.suspended_reason ? " — " + a.suspended_reason : ""}</div>
+                </div>
+                <div><button onclick="unsuspend('\${a.id}')">Unsuspend</button></div>
+              </div>
+            </div>\`).join("");
+
+        const { workouts: pendingList } = await (await api("/v1/admin/onchain-pending")).json();
+        const pendEl = document.getElementById("onchain-pending");
+        if (!pendingList.length) pendEl.innerHTML = '<div class="empty">All workouts settled on-chain. 🎉</div>';
+        else pendEl.innerHTML = pendingList.map(w => \`
+            <div class="card">
+              <div class="row">
+                <div style="flex:1">
+                  <div><strong>\${w.type}</strong> —
+                    \${w.points} pts — @\${w.athlete_handle || w.athlete_id}</div>
+                  <div class="meta">
+                    retry #\${w.onchain_retry_count}
+                    \${w.onchain_last_retry_at ? " — last @ " + new Date(w.onchain_last_retry_at*1000).toLocaleString() : ""}
+                    \${w.walrus_blob_id ? "" : " — ⚠ no walrus blob"}
+                  </div>
+                  \${w.onchain_last_error ? \`<div class="quote">\${w.onchain_last_error}</div>\` : ""}
+                </div>
+              </div>
+            </div>\`).join("");
+
+        const { keys: attestKeys } = await (await api("/v1/admin/attest-keys")).json();
+        const attEl = document.getElementById("attest-keys");
+        if (!attestKeys.length) attEl.innerHTML = '<div class="empty">No App Attest keys registered yet.</div>';
+        else attEl.innerHTML = attestKeys.map(k => \`
+            <div class="card">
+              <div class="row">
+                <div style="flex:1">
+                  <div>@\${k.athlete_handle || k.athlete_id}
+                    <span class="reason" style="background:\${k.cert_chain_ok ? '#e8f7ea' : '#fde8e8'};color:\${k.cert_chain_ok ? '#060' : '#b00'}">
+                      \${k.cert_chain_ok ? "verified" : "unverified"}
+                    </span></div>
+                  <div class="meta">counter \${k.counter}
+                    \${k.last_used_at ? " — last used " + new Date(k.last_used_at*1000).toLocaleString() : ""}</div>
+                </div>
+              </div>
+            </div>\`).join("");
     }
 
     window.resolveReport = async (id) => {
@@ -299,6 +398,11 @@ const dashboardHtml = `<!doctype html>
     window.suspend = async (athleteId, reason) => {
         if (!confirm("Suspend " + athleteId + "?")) return;
         await post("/v1/admin/athletes/" + athleteId + "/suspend", { reason });
+        renderAll();
+    };
+    window.unsuspend = async (athleteId) => {
+        if (!confirm("Unsuspend " + athleteId + "?")) return;
+        await post("/v1/admin/athletes/" + athleteId + "/unsuspend", {});
         renderAll();
     };
 </script>

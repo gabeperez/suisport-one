@@ -250,7 +250,8 @@ enum APIError: Error {
 // MARK: - DTOs (match the Worker's db.ts mappers one-to-one)
 
 struct AthleteDTO: Decodable, Hashable {
-    let id: String
+    let id: String                // user_id (server-assigned UUID)
+    let suiAddress: String?       // Sui chain address, if signed in via zkLogin
     let handle: String
     let displayName: String
     let avatarTone: String
@@ -443,7 +444,8 @@ struct AuthExchangeRequest: Encodable {
 }
 struct AuthExchangeResponse: Decodable {
     let sessionJwt: String
-    let suiAddress: String
+    let userId: String?           // Server-assigned stable UUID
+    let suiAddress: String        // On-chain identity
     let displayName: String
     let handle: String?
     let suinsName: String?

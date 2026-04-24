@@ -2,7 +2,8 @@
 // consumes — keep field names camelCase there so Swift `JSONDecoder` works.
 
 export type AthleteRow = {
-    id: string;
+    id: string;                       // Internal: the Sui address used as FK target
+    user_id: string;                  // Public: stable UUID the client uses
     handle: string;
     display_name: string;
     avatar_tone: string;
@@ -129,8 +130,14 @@ export type PRRow = {
 // ---------- DTO mappers (snake_case DB rows → camelCase JSON for Swift) ----------
 
 export function athleteDTO(r: AthleteRow) {
+    // Public id is the server-assigned UUID; the Sui address lives on
+    // its own field so clients render it as an on-chain identity
+    // *property*, not as the primary key. This is the "Web2 UX, Web3
+    // anchored" seam: internal joins still key on athletes.id (the
+    // Sui address), but the outside world only sees user_id.
     return {
-        id: r.id,
+        id: r.user_id,
+        suiAddress: r.id.startsWith("0x") ? r.id : null,
         handle: r.handle,
         displayName: r.display_name,
         avatarTone: r.avatar_tone,

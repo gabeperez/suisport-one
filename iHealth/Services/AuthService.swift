@@ -67,7 +67,7 @@ final class AuthService: NSObject {
             APIClient.shared.sessionToken = resp.sessionJwt
             APIClient.shared.demoAthleteId = nil
             return User(
-                id: resp.suiAddress,
+                id: resp.userId ?? resp.suiAddress,   // prefer stable UUID
                 displayName: resp.displayName,
                 avatarURL: nil,
                 goal: nil,

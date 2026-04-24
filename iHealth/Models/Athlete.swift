@@ -5,8 +5,9 @@ import SwiftUI
 /// Abstracted from `User` because feed items / kudos / comments all reference
 /// a lightweight athlete identity, not a full logged-in session.
 struct Athlete: Identifiable, Hashable, Codable {
-    var id: String                          // Sui address
-    var handle: String                      // @handle, unique
+    var id: String                          // Stable server-assigned UUID (never changes)
+    var suiAddress: String? = nil           // On-chain identity (present when authed via zkLogin)
+    var handle: String                      // @handle, user-mutable
     var displayName: String
     var avatarTone: AvatarTone              // deterministic color for gradient avatar
     var verified: Bool                      // blue check for pro athletes / partners
@@ -26,8 +27,12 @@ struct Athlete: Identifiable, Hashable, Codable {
     static func preview(_ handle: String, name: String, tier: AthleteTier = .starter,
                         verified: Bool = false) -> Athlete {
         let tone = AvatarTone.tone(for: handle)
+        // Deterministic "UUID-like" id from the handle so SwiftUI list
+        // diffing stays stable across app launches.
+        let localId = "local_\(String(handle.hashValue.magnitude, radix: 16))"
         return Athlete(
-            id: "0x" + String(handle.hashValue.magnitude, radix: 16).padding(toLength: 40, withPad: "0", startingAt: 0),
+            id: localId,
+            suiAddress: nil,                 // offline seeds have no on-chain identity
             handle: handle,
             displayName: name,
             avatarTone: tone,

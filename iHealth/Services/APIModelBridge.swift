@@ -35,6 +35,7 @@ extension Athlete {
     init(dto: AthleteDTO) {
         self.init(
             id: dto.id,
+            suiAddress: dto.suiAddress,
             handle: dto.handle,
             displayName: dto.displayName,
             avatarTone: AvatarTone(rawValue: dto.avatarTone) ?? .sunset,

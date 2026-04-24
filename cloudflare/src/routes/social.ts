@@ -8,6 +8,7 @@ import {
     type TrophyRow, type ShoeRow, type PRRow,
 } from "../db.js";
 import { requireAthlete } from "../auth.js";
+import { resolveInternalId } from "../identity.js";
 import {
     parseBody, AthletePatchSchema, KudosSchema, CommentSchema,
     ReportSchema, CreateClubSchema, AddShoeSchema,
@@ -25,8 +26,10 @@ social.get("/athletes", async (c) => {
 });
 
 social.get("/athletes/:id", async (c) => {
-    const row = await c.env.DB.prepare("SELECT * FROM athletes WHERE id = ?")
-        .bind(c.req.param("id")).first<AthleteRow>();
+    const id = c.req.param("id");
+    const row = await c.env.DB.prepare(
+        "SELECT * FROM athletes WHERE user_id = ? OR id = ? LIMIT 1"
+    ).bind(id, id).first<AthleteRow>();
     if (!row) return c.json({ error: "not_found" }, 404);
     return c.json({ athlete: athleteDTO(row) });
 });
@@ -180,7 +183,8 @@ social.get("/feed/:id/comments", async (c) => {
 
 social.post("/follow/:id", async (c) => {
     const me = requireAthlete(c);
-    const target = c.req.param("id");
+    const target = await resolveInternalId(c.env, c.req.param("id"));
+    if (!target) return c.json({ error: "not_found" }, 404);
     if (me === target) return c.json({ error: "self" }, 400);
     await c.env.DB.batch([
         c.env.DB.prepare(`INSERT OR IGNORE INTO follows (follower_id, followee_id) VALUES (?, ?)`)
@@ -194,7 +198,8 @@ social.post("/follow/:id", async (c) => {
 
 social.delete("/follow/:id", async (c) => {
     const me = requireAthlete(c);
-    const target = c.req.param("id");
+    const target = await resolveInternalId(c.env, c.req.param("id"));
+    if (!target) return c.json({ error: "not_found" }, 404);
     await c.env.DB.prepare(`DELETE FROM follows WHERE follower_id = ? AND followee_id = ?`)
         .bind(me, target).run();
     return c.json({ ok: true });
@@ -202,7 +207,8 @@ social.delete("/follow/:id", async (c) => {
 
 social.post("/mute/:id", async (c) => {
     const me = requireAthlete(c);
-    const target = c.req.param("id");
+    const target = await resolveInternalId(c.env, c.req.param("id"));
+    if (!target) return c.json({ error: "not_found" }, 404);
     await c.env.DB.prepare(`INSERT OR IGNORE INTO mutes (muter_id, muted_id) VALUES (?, ?)`)
         .bind(me, target).run();
     return c.json({ ok: true });
@@ -387,7 +393,8 @@ social.delete("/segments/:id/star", async (c) => {
 // ---------- Trophies ----------
 
 social.get("/athletes/:id/trophies", async (c) => {
-    const aid = c.req.param("id");
+    const aid = await resolveInternalId(c.env, c.req.param("id"));
+    if (!aid) return c.json({ trophies: [] });
     const rows = await c.env.DB.prepare(
         `SELECT t.*, u.progress, u.earned_at, u.showcase_index
          FROM trophies t
@@ -409,9 +416,11 @@ social.get("/athletes/:id/trophies", async (c) => {
 // ---------- Shoes ----------
 
 social.get("/athletes/:id/shoes", async (c) => {
+    const aid = await resolveInternalId(c.env, c.req.param("id"));
+    if (!aid) return c.json({ shoes: [] });
     const rows = await c.env.DB.prepare(
         `SELECT * FROM shoes WHERE athlete_id = ? ORDER BY retired ASC, started_at DESC`
-    ).bind(c.req.param("id")).all<ShoeRow>();
+    ).bind(aid).all<ShoeRow>();
     return c.json({ shoes: rows.results.map(shoeDTO) });
 });
 
@@ -440,16 +449,19 @@ social.post("/shoes/:id/retire", async (c) => {
 // ---------- Personal records ----------
 
 social.get("/athletes/:id/prs", async (c) => {
+    const aid = await resolveInternalId(c.env, c.req.param("id"));
+    if (!aid) return c.json({ prs: [] });
     const rows = await c.env.DB.prepare(
         `SELECT * FROM personal_records WHERE athlete_id = ? ORDER BY distance_meters ASC`
-    ).bind(c.req.param("id")).all<PRRow>();
+    ).bind(aid).all<PRRow>();
     return c.json({ prs: rows.results.map(prDTO) });
 });
 
 // ---------- Sweat + streak ----------
 
 social.get("/athletes/:id/sweat", async (c) => {
-    const aid = c.req.param("id");
+    const aid = await resolveInternalId(c.env, c.req.param("id"));
+    if (!aid) return c.json({ sweat: { total: 0, weekly: 0 }, streak: null });
     const [sweat, streak] = await Promise.all([
         c.env.DB.prepare("SELECT * FROM sweat_points WHERE athlete_id = ?").bind(aid)
             .first<{ total: number; weekly: number }>(),

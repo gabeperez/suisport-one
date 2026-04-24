@@ -360,7 +360,8 @@ private extension SocialDataService {
     static func buildSelf(from user: User?, workoutCount: Int) -> Athlete {
         let handle = user?.displayName.lowercased().replacingOccurrences(of: " ", with: "_") ?? "you"
         return Athlete(
-            id: user?.suiAddress ?? "0xme",
+            id: user?.id ?? "local_me",          // UUID if signed in, stable placeholder otherwise
+            suiAddress: user?.suiAddress,
             handle: handle,
             displayName: user?.displayName ?? "You",
             avatarTone: AvatarTone.tone(for: handle),
@@ -369,7 +370,8 @@ private extension SocialDataService {
             totalWorkouts: workoutCount,
             followers: 0,
             following: 12,
-            bio: "Running, riding, and earning Sweat."
+            bio: "Running, riding, and earning Sweat.",
+            suinsName: user?.suinsName
         )
     }
 

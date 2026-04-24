@@ -94,8 +94,16 @@ auth.post("/auth/session", async (c) => {
         ).bind(sessionId, suiAddress, expiresAt),
     ]);
 
+    // Read back the newly-created (or existing) user_id so the client
+    // gets a stable public identity from the very first call. This is
+    // cheap — we just did an upsert so the row is hot.
+    const userRow = await c.env.DB.prepare(
+        `SELECT user_id FROM athletes WHERE id = ?`
+    ).bind(suiAddress).first<{ user_id: string }>();
+
     return c.json({
         sessionJwt: sessionId,
+        userId: userRow?.user_id ?? null,
         suiAddress,
         displayName,
         handle,

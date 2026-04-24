@@ -15,6 +15,7 @@ export type AthleteRow = {
     bio: string | null;
     location: string | null;
     photo_r2_key: string | null;
+    suins_name: string | null;
     is_demo: number;
 };
 
@@ -142,6 +143,7 @@ export function athleteDTO(r: AthleteRow) {
         bio: r.bio,
         location: r.location,
         photoURL: r.photo_r2_key ? `/media/${r.photo_r2_key}` : null,
+        suinsName: r.suins_name,
         isDemo: r.is_demo === 1,
     };
 }

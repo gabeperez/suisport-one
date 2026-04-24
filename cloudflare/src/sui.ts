@@ -203,6 +203,27 @@ export async function getSweatBalance(
     }
 }
 
+/** Reverse SuiNS lookup. Returns the first name registered to the
+ *  address (e.g. "alice.sui") or null. Runs on both testnet and
+ *  mainnet — the resolver is deployed on each network separately.
+ *  Silent-on-error: a node outage or unregistered address returns null
+ *  so callers can fall back to OAuth-provided name. */
+export async function resolveSuiNS(
+    env: SuiEnv,
+    address: string
+): Promise<string | null> {
+    if (!env.SUI_NETWORK && !env.SUI_PACKAGE_ID) return null;
+    try {
+        const client = suiClient(env);
+        const res = await client.resolveNameServiceNames({
+            address, limit: 1,
+        });
+        return res.data?.[0] ?? null;
+    } catch {
+        return null;
+    }
+}
+
 /** Derive the operator's Sui address from the configured private key,
  *  useful for the status endpoint + setup scripts. */
 export function operatorAddress(env: SuiEnv): string | null {

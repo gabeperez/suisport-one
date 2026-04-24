@@ -2,6 +2,22 @@ import { Hono } from "hono";
 import type { Env, Variables } from "../env.js";
 import { parseBody, AuthExchangeSchema } from "../validation.js";
 import { hasEnokiKey, resolveZkLogin, decodeJwtClaims } from "../enoki.js";
+import { resolveSuiNS } from "../sui.js";
+
+/// Strip the ".sui" suffix + sanitize for use as a handle.
+/// "alice.sui" → "alice"; "my-name.sui" → "my_name"
+function suinsToHandle(suins: string): string {
+    const stem = suins.replace(/\.sui$/, "");
+    return stem.toLowerCase().replace(/[^a-z0-9_]/g, "_").slice(0, 24) || "athlete";
+}
+
+function suinsToDisplayName(suins: string): string {
+    const stem = suins.replace(/\.sui$/, "");
+    // Title-case each segment separated by - or _
+    return stem.split(/[-_]/).map(w =>
+        w.length ? w[0].toUpperCase() + w.slice(1) : w
+    ).join(" ");
+}
 
 export const auth = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -41,10 +57,22 @@ auth.post("/auth/session", async (c) => {
         suiAddress = await deterministicAddr(body.idToken || body.provider);
     }
 
+    // SuiNS reverse lookup — when the user already owns `alice.sui` we
+    // pre-fill their profile with it. Silent on-error; names are optional.
+    const suinsName = await resolveSuiNS(c.env, suiAddress);
+
+    const claimedName = typeof claims.name === "string" ? claims.name : undefined;
+    const claimedEmail = typeof claims.email === "string" ? claims.email : undefined;
     const displayName = body.displayName
-        ?? (typeof claims.name === "string" ? claims.name : undefined)
-        ?? (typeof claims.email === "string" ? claims.email : undefined)
+        ?? (suinsName ? suinsToDisplayName(suinsName) : undefined)
+        ?? claimedName
+        ?? claimedEmail
         ?? "Athlete";
+    const handle = suinsName
+        ? suinsToHandle(suinsName)
+        : (displayName.toLowerCase().replace(/[^a-z0-9]/g, "_").slice(0, 24)
+            || `u${suiAddress.slice(2, 10)}`);
+
     const sessionId = crypto.randomUUID();
     const expiresAt = Math.floor(Date.now() / 1000) + 60 * 60 * 24 * 30;
 
@@ -56,13 +84,11 @@ auth.post("/auth/session", async (c) => {
              VALUES (?, ?, ?)`
         ).bind(suiAddress, displayName, body.provider),
         c.env.DB.prepare(
-            `INSERT OR IGNORE INTO athletes (id, handle, display_name, avatar_tone)
-             VALUES (?, ?, ?, 'sunset')`
-        ).bind(
-            suiAddress,
-            displayName.toLowerCase().replace(/[^a-z0-9]/g, "_").slice(0, 24) || `u${suiAddress.slice(2, 10)}`,
-            displayName
-        ),
+            `INSERT INTO athletes (id, handle, display_name, avatar_tone, suins_name)
+             VALUES (?, ?, ?, 'sunset', ?)
+             ON CONFLICT(id) DO UPDATE SET
+                suins_name = COALESCE(excluded.suins_name, athletes.suins_name)`
+        ).bind(suiAddress, handle, displayName, suinsName),
         c.env.DB.prepare(
             `INSERT INTO sessions (id, sui_address, expires_at) VALUES (?, ?, ?)`
         ).bind(sessionId, suiAddress, expiresAt),
@@ -72,6 +98,8 @@ auth.post("/auth/session", async (c) => {
         sessionJwt: sessionId,
         suiAddress,
         displayName,
+        handle,
+        suinsName,
         verified: verifiedEnoki,
     });
 });

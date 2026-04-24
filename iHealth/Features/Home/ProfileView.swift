@@ -790,6 +790,7 @@ struct AdvancedSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var status: SuiStatusResponse?
     @State private var balance: SweatBalanceResponse?
+    @State private var whoami: WhoamiResponse?
 
     var body: some View {
         NavigationStack {
@@ -858,6 +859,7 @@ struct AdvancedSheet: View {
                             .foregroundStyle(Theme.Color.inkFaint)
                     }
                 }
+                authDiagnosticsSection
                 Section {
                     Text("Most people never need this page. It's here if you do.")
                         .font(.footnote)
@@ -879,9 +881,64 @@ struct AdvancedSheet: View {
         // closures below don't need to hop back for the property access.
         let addr = app.currentUser?.suiAddress
         async let s = try? await APIClient.shared.fetchSuiStatus()
+        async let w = try? await APIClient.shared.fetchWhoami()
         status = await s
+        whoami = await w
         if let addr {
             balance = try? await APIClient.shared.fetchSweatBalance(address: addr)
+        }
+    }
+
+    @ViewBuilder
+    private var authDiagnosticsSection: some View {
+        Section("Auth") {
+            if let w = whoami {
+                HStack {
+                    Label(w.authenticated ? "Signed in" : "Anonymous",
+                          systemImage: w.authenticated ? "checkmark.seal.fill" : "questionmark.circle")
+                    Spacer()
+                    if let p = w.provider {
+                        Text(p.capitalized).foregroundStyle(Theme.Color.inkSoft)
+                    }
+                }
+                HStack {
+                    Label(w.addressShape == "sui_valid"
+                          ? "zkLogin address (Enoki-verified)"
+                          : "Mock address (Enoki not reached)",
+                          systemImage: w.addressShape == "sui_valid"
+                              ? "checkmark.seal.fill" : "exclamationmark.triangle.fill")
+                    Spacer()
+                    Text(w.enokiConfigured ? "Enoki on" : "Enoki off")
+                        .font(.system(size: 11, weight: .semibold, design: .rounded))
+                        .foregroundStyle(w.enokiConfigured
+                                         ? Theme.Color.accentDeep : Theme.Color.hot)
+                }
+                if let suins = w.suinsName {
+                    HStack {
+                        Label("SuiNS", systemImage: "checkmark.seal.fill")
+                        Spacer()
+                        Text(suins).foregroundStyle(Theme.Color.accentDeep)
+                    }
+                } else {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Label("No SuiNS on this address", systemImage: "minus.circle")
+                            .foregroundStyle(Theme.Color.inkSoft)
+                        Text("zkLogin generates a fresh Sui address per OAuth identity. Your personal wallet's SuiNS name isn't tied to it unless you register one here too.")
+                            .font(.caption2)
+                            .foregroundStyle(Theme.Color.inkFaint)
+                    }
+                }
+                Button {
+                    Task { whoami = try? await APIClient.shared.fetchWhoami() }
+                } label: {
+                    Label("Re-check identity", systemImage: "arrow.triangle.2.circlepath")
+                }
+            } else {
+                HStack {
+                    ProgressView().scaleEffect(0.7)
+                    Text("Loading identity…").foregroundStyle(Theme.Color.inkSoft)
+                }
+            }
         }
     }
 

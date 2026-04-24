@@ -40,13 +40,36 @@ final class AuthService: NSObject {
                                      displayName: name, fallbackSubject: subject)
     }
 
-    /// Sign in with Google. Still mock — wiring the Google Sign-In SDK
-    /// is tracked in TODO.md §2.4. Once the SDK produces an id_token,
-    /// pass it to `exchangeIdToken(provider: .google, ...)` and delete
-    /// the simulated round-trip below.
+    /// Sign in with Google. Uses `ASWebAuthenticationSession` + PKCE —
+    /// no SDK dependency. See GoogleAuth.swift. The resulting id_token
+    /// is exchanged via the same /v1/auth/session path Apple uses, so
+    /// Enoki runs zkLogin and the user gets a real Sui address.
+    ///
+    /// Falls back to the offline mock when Google OAuth is not yet
+    /// configured (empty clientId) or when the user cancels, so dev
+    /// without Google Cloud credentials still works.
     func signInWithGoogle() async throws -> User {
-        try await Task.sleep(nanoseconds: 700_000_000)
-        return await mintMockSession(provider: .google, subject: UUID().uuidString, name: nil)
+        guard GoogleAuth.isConfigured else {
+            try await Task.sleep(nanoseconds: 400_000_000)
+            return await mintMockSession(
+                provider: .google,
+                subject: UUID().uuidString,
+                name: nil
+            )
+        }
+        do {
+            let idToken = try await GoogleAuth.signIn()
+            return await exchangeIdToken(
+                provider: .google,
+                idToken: idToken,
+                displayName: nil,
+                fallbackSubject: idToken.prefix(16).description
+            )
+        } catch GoogleAuthError.cancelled {
+            throw AuthError.cancelled
+        } catch {
+            throw AuthError.failed(String(describing: error))
+        }
     }
 
     /// POST the OAuth id_token to the Worker's /v1/auth/session. On
@@ -91,7 +114,11 @@ final class AuthService: NSObject {
         try await withCheckedThrowingContinuation { cont in
             let provider = ASAuthorizationAppleIDProvider()
             let request = provider.createRequest()
-            request.requestedScopes = [.fullName]
+            // .email is required for the JWT's email claim to be populated,
+            // which Enoki reflects back to us as profile metadata.
+            // .fullName fills in first/last on *first* sign-in only
+            // (Apple only returns it once per app install).
+            request.requestedScopes = [.fullName, .email]
 
             let controller = ASAuthorizationController(authorizationRequests: [request])
             let delegate = AppleAuthDelegate(continuation: cont)

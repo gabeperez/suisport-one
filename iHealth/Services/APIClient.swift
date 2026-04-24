@@ -147,6 +147,10 @@ nonisolated final class APIClient: @unchecked Sendable {
         try await post("/workouts", body: req)
     }
 
+    // MARK: - Auth diagnostics
+
+    func fetchWhoami() async throws -> WhoamiResponse { try await get("/auth/whoami") }
+
     // MARK: - Sui / on-chain
 
     func fetchSuiStatus() async throws -> SuiStatusResponse { try await get("/sui/status") }
@@ -400,6 +404,21 @@ nonisolated struct SweatEnvelope: Decodable {
 }
 
 nonisolated struct HealthResponse: Decodable { let ok: Bool; let ts: Double; let demoSeeded: Bool }
+
+nonisolated struct WhoamiResponse: Decodable {
+    let authenticated: Bool
+    let enokiConfigured: Bool
+    let userId: String?
+    let suiAddress: String?
+    /// "sui_valid" (66-char address from real Enoki) or "mock_truncated" (pre-Enoki fallback)
+    let addressShape: String?
+    let handle: String?
+    let displayName: String?
+    let suinsName: String?
+    let suinsPresentOnThisNetwork: Bool?
+    let provider: String?
+    let firstSeenAt: Double?
+}
 
 nonisolated struct SuiStatusResponse: Decodable {
     let network: String

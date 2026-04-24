@@ -100,21 +100,51 @@ rewards.post("/rewards/redeem", async (c) => {
     ).bind(item.cost_points, athleteId, item.cost_points).run();
 
     if ((spend.meta.changes ?? 0) === 0) {
-        // Refund the pool + undo the claim bump.
-        await c.env.DB.prepare(
-            `UPDATE rewards_catalog
-             SET code_pool = ? || CASE WHEN code_pool = '' THEN '' ELSE x'0a' END || code_pool,
-                 stock_claimed = stock_claimed - 1
-             WHERE id = ?`
-        ).bind(popped.code, catalogId).run();
+        // Spend failed (insufficient points or race). Try to put the
+        // popped code back into the pool + roll back the stock claim
+        // bump. If that refund UPDATE ALSO fails, we log to
+        // redemption_refunds as a last-resort recovery record so an
+        // operator can credit the user manually. We never want to
+        // return the code to the user since we already decided to
+        // 402 — they'd have the string but no D1 row linking them.
+        try {
+            const refund = await c.env.DB.prepare(
+                `UPDATE rewards_catalog
+                 SET code_pool = ? || CASE WHEN code_pool = '' THEN '' ELSE x'0a' END || code_pool,
+                     stock_claimed = stock_claimed - 1
+                 WHERE id = ?`
+            ).bind(popped.code, catalogId).run();
+            if ((refund.meta.changes ?? 0) === 0) {
+                await logLostCode(c.env, athleteId, catalogId, popped.code, "refund_update_zero_rows");
+            }
+        } catch (err) {
+            await logLostCode(
+                c.env, athleteId, catalogId, popped.code,
+                err instanceof Error ? err.message : "refund_failed"
+            );
+        }
         return c.json({ error: "insufficient_points" }, 402);
     }
 
+    // Redemption ledger — isolated from the spend/pop so a unique
+    // constraint collision (extremely unlikely with randomUUID) can
+    // be surfaced without corrupting sweat_points state.
     const redemptionId = `rd_${crypto.randomUUID().replace(/-/g, "").slice(0, 16)}`;
-    await c.env.DB.prepare(
-        `INSERT INTO redemptions (id, athlete_id, catalog_id, cost_points, code_revealed)
-         VALUES (?, ?, ?, ?, ?)`
-    ).bind(redemptionId, athleteId, catalogId, item.cost_points, popped.code).run();
+    try {
+        await c.env.DB.prepare(
+            `INSERT INTO redemptions (id, athlete_id, catalog_id, cost_points, code_revealed)
+             VALUES (?, ?, ?, ?, ?)`
+        ).bind(redemptionId, athleteId, catalogId, item.cost_points, popped.code).run();
+    } catch (err) {
+        // If the redemption log INSERT fails we still hand the code
+        // back to the user (we already debited their points + the
+        // code is consumed) but log it as a reconciliation breadcrumb
+        // so support can reconstruct history.
+        await logLostCode(
+            c.env, athleteId, catalogId, popped.code,
+            `redemption_insert_failed: ${err instanceof Error ? err.message : "unknown"}`
+        );
+    }
 
     return c.json({
         redemptionId,
@@ -150,3 +180,28 @@ rewards.get("/rewards/history", async (c) => {
         })),
     });
 });
+
+/// Best-effort ledger of redemption codes that escaped the normal flow
+/// (refund UPDATE failed / redemption INSERT failed). Support reads
+/// this table to figure out who to credit. Silent on write failure —
+/// nothing we can usefully do if D1 itself is down.
+async function logLostCode(
+    env: Env,
+    athleteId: string,
+    catalogId: string,
+    code: string,
+    reason: string
+): Promise<void> {
+    try {
+        await env.DB.prepare(
+            `INSERT INTO redemption_refunds (id, athlete_id, catalog_id, code, reason)
+             VALUES (?, ?, ?, ?, ?)`
+        ).bind(
+            `rf_${crypto.randomUUID().replace(/-/g, "").slice(0, 16)}`,
+            athleteId, catalogId, code, reason.slice(0, 500)
+        ).run();
+    } catch {
+        // Last-resort log — surface to stderr and move on.
+        console.error("redemption_refund_log_failed", { athleteId, catalogId, reason });
+    }
+}

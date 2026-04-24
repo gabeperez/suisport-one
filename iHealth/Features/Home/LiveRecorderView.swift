@@ -14,7 +14,17 @@ struct LiveRecorderView: View {
     @State private var recorder = WorkoutRecorder()
     @State private var showEndConfirm = false
     @State private var submitError: String?
+    @State private var startError: String?
     @State private var isSubmitting = false
+    /// The workout + prepared request held over for Retry. Kept around
+    /// while submit fails so the user can re-attempt without losing the
+    /// captured session, and cleared on success or Discard.
+    @State private var pendingSubmit: PendingSubmit?
+
+    private struct PendingSubmit {
+        let workout: Workout
+        let request: SubmitWorkoutRequest
+    }
 
     var body: some View {
         VStack(spacing: Theme.Space.lg) {
@@ -23,13 +33,6 @@ struct LiveRecorderView: View {
             metrics
             Spacer()
             controls
-            if let submitError {
-                Text(submitError)
-                    .font(.caption)
-                    .foregroundStyle(Theme.Color.hot)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal)
-            }
         }
         .padding(Theme.Space.lg)
         .background(Theme.Color.bg.ignoresSafeArea())
@@ -41,6 +44,34 @@ struct LiveRecorderView: View {
             }
         } message: {
             Text("We'll mint the proof + points now.")
+        }
+        .alert("Couldn't start recording", isPresented: Binding(
+            get: { startError != nil },
+            set: { if !$0 { startError = nil } }
+        )) {
+            Button("OK", role: .cancel) { dismiss() }
+        } message: {
+            Text(startError ?? "")
+        }
+        .alert("Couldn't save workout", isPresented: Binding(
+            get: { submitError != nil },
+            set: { if !$0 { submitError = nil } }
+        )) {
+            Button("Retry") {
+                Task { await retrySubmit() }
+            }
+            Button("Discard", role: .destructive) {
+                pendingSubmit = nil
+                submitError = nil
+                dismiss()
+            }
+            Button("Cancel", role: .cancel) {
+                // Keep pendingSubmit so the user can retry later from
+                // the workout-in-limbo UI (future).
+                submitError = nil
+            }
+        } message: {
+            Text(submitError ?? "")
         }
     }
 
@@ -267,19 +298,19 @@ struct LiveRecorderView: View {
         do {
             try await recorder.start(type: type)
         } catch {
-            submitError = "Couldn't start: \(error.localizedDescription)"
+            startError = error.localizedDescription
         }
     }
 
+    @MainActor
     private func finish() async {
         isSubmitting = true
         defer { isSubmitting = false }
         do {
             guard let workout = try await recorder.finish() else {
-                submitError = "No workout captured"
+                submitError = "We didn't capture any movement for this session."
                 return
             }
-            // Push to the server so the mint pipeline fires.
             let req = SubmitWorkoutRequest(
                 type: workout.type.rawValue,
                 startDate: workout.startDate.timeIntervalSince1970,
@@ -292,13 +323,35 @@ struct LiveRecorderView: View {
                 title: defaultTitle(for: workout),
                 caption: nil
             )
-            _ = try? await APIClient.shared.submitWorkout(req)
+            let pending = PendingSubmit(workout: workout, request: req)
+            pendingSubmit = pending
+            await submit(pending)
+        } catch {
+            submitError = error.localizedDescription
+        }
+    }
 
+    /// Re-submit the last pending payload. Called from the error alert
+    /// Retry button; a no-op if we already lost the payload (Discard).
+    @MainActor
+    private func retrySubmit() async {
+        guard let pending = pendingSubmit else { return }
+        isSubmitting = true
+        defer { isSubmitting = false }
+        await submit(pending)
+    }
+
+    @MainActor
+    private func submit(_ pending: PendingSubmit) async {
+        do {
+            _ = try await APIClient.shared.submitWorkout(pending.request)
+            pendingSubmit = nil
             // Refresh the feed so the new workout shows up immediately.
             await social.refresh()
             Haptics.success()
         } catch {
-            submitError = "Couldn't save: \(error.localizedDescription)"
+            submitError = error.localizedDescription
+            Haptics.warn()
         }
     }
 

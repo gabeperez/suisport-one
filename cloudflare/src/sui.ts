@@ -52,18 +52,103 @@ export interface SuiEnv {
     SUI_ORACLE_CAP_ID?: string;
     SUI_VERSION_OBJECT_ID?: string;
     SUI_OPERATOR_KEY?: string;
+    SUI_OPERATOR_KEYS?: string;
     ORACLE_PRIVATE_KEY?: string;
 }
 
 export function hasSuiConfig(env: SuiEnv): boolean {
+    const hasAnyOperator =
+        !!env.SUI_OPERATOR_KEY ||
+        !!(env.SUI_OPERATOR_KEYS && env.SUI_OPERATOR_KEYS.trim().length > 0);
     return !!(
         env.SUI_PACKAGE_ID &&
         env.SUI_REWARDS_ENGINE_ID &&
         env.SUI_ORACLE_CAP_ID &&
         env.SUI_VERSION_OBJECT_ID &&
-        env.SUI_OPERATOR_KEY &&
+        hasAnyOperator &&
         env.ORACLE_PRIVATE_KEY
     );
+}
+
+/// Parse the pool of available operator keys.
+///
+/// Priority:
+///   1. SUI_OPERATOR_KEYS (comma-separated) — multi-key fanout
+///   2. SUI_OPERATOR_KEY (single) — legacy single-operator mode
+///
+/// Empty entries (blanks, whitespace) are dropped so a trailing comma
+/// or a `,,` doesn't produce phantom keys. Returns `[]` when nothing
+/// is configured — callers should guard with hasSuiConfig first.
+export function operatorKeyPool(env: SuiEnv): string[] {
+    if (env.SUI_OPERATOR_KEYS && env.SUI_OPERATOR_KEYS.trim().length > 0) {
+        const parts = env.SUI_OPERATOR_KEYS
+            .split(",")
+            .map((s) => s.trim())
+            .filter((s) => s.length > 0);
+        if (parts.length > 0) return parts;
+    }
+    return env.SUI_OPERATOR_KEY ? [env.SUI_OPERATOR_KEY] : [];
+}
+
+/// Deterministic athlete-to-operator mapping.
+///
+/// We hash the athlete id (cheap FNV-1a 32-bit) and mod by the pool
+/// size. The mapping is stable for the lifetime of the pool, which
+/// matters because each operator owns the UserProfile objects it
+/// minted — if we rotated the mapping, the stored profile_object_id
+/// in sui_user_profiles would belong to the wrong signer and the
+/// submit would fail with an ownership error.
+///
+/// When operators are added to SUI_OPERATOR_KEYS the mapping for
+/// *existing* athletes may shift, but the D1 row already stores the
+/// concrete profile_object_id so we only need a keypair that can sign
+/// mutations on that object. We solve this by making the "owner"
+/// operator the one that was current *at mint time* — the submit
+/// caller looks up the profile and then signs with the operator whose
+/// address owns it. See `operatorKeypairForAthlete`.
+export function operatorKeypairForAthlete(
+    env: SuiEnv,
+    athleteId: string
+): Ed25519Keypair {
+    const pool = operatorKeyPool(env);
+    if (pool.length === 0) {
+        throw new Error("no_operator_keys_configured");
+    }
+    if (pool.length === 1) {
+        return operatorKeypair(pool[0]);
+    }
+    const idx = fnv1a32(athleteId) % pool.length;
+    return operatorKeypair(pool[idx]);
+}
+
+/// When the DB already knows which operator owns an athlete's
+/// UserProfile (stored in sui_user_profiles.operator_address), use
+/// this to fetch a keypair that matches. Returns null when no key in
+/// the pool matches the address — caller should surface that as a
+/// misconfiguration (e.g. rotating keys requires re-minting profiles).
+export function operatorKeypairByAddress(
+    env: SuiEnv,
+    address: string
+): Ed25519Keypair | null {
+    const pool = operatorKeyPool(env);
+    for (const k of pool) {
+        try {
+            const kp = operatorKeypair(k);
+            if (kp.getPublicKey().toSuiAddress() === address) return kp;
+        } catch { /* skip malformed */ }
+    }
+    return null;
+}
+
+function fnv1a32(s: string): number {
+    // FNV-1a 32-bit — tiny, deterministic, no DB hit. We only need
+    // "evenly spread" distribution across a small pool (2..N ops).
+    let h = 0x811c9dc5;
+    for (let i = 0; i < s.length; i++) {
+        h ^= s.charCodeAt(i);
+        h = (h + ((h << 1) + (h << 4) + (h << 7) + (h << 8) + (h << 24))) >>> 0;
+    }
+    return h >>> 0;
 }
 
 export function suiClient(env: SuiEnv): SuiJsonRpcClient {
@@ -117,7 +202,11 @@ export function signAttestation(
 
 /** Build + submit a `rewards_engine::submit_workout` transaction.
  *  Returns the executed tx digest (on success). Caller is responsible
- *  for ensuring hasSuiConfig(env) is true. */
+ *  for ensuring hasSuiConfig(env) is true.
+ *
+ *  `operator` is the exact keypair that should sign — it MUST own
+ *  `profileObjectId`. Pass `null` / omit to fall back to the first
+ *  pool key (for backwards-compatible single-operator callers). */
 export async function submitWorkoutOnChain(
     env: SuiEnv,
     input: {
@@ -130,7 +219,8 @@ export async function submitWorkoutOnChain(
         calories: number;
         walrusBlobId: Uint8Array;   // raw bytes
         rewardAmount: bigint;
-    }
+    },
+    operator?: Ed25519Keypair
 ): Promise<{ txDigest: string; eventDigests: unknown[] }> {
     const client = suiClient(env);
 
@@ -174,9 +264,13 @@ export async function submitWorkoutOnChain(
         ],
     });
 
-    const operator = operatorKeypair(env.SUI_OPERATOR_KEY!);
+    // Caller is expected to pass the operator that owns the
+    // profileObjectId. When they don't, we fall back to the first
+    // keypair in the pool — that path is for legacy single-operator
+    // deploys where there's only one possible signer.
+    const signer = operator ?? operatorKeypairForAthlete(env, input.athlete);
     const res = await client.signAndExecuteTransaction({
-        signer: operator,
+        signer,
         transaction: tx,
         options: { showEffects: true, showEvents: true },
     });
@@ -224,16 +318,31 @@ export async function resolveSuiNS(
     }
 }
 
-/** Derive the operator's Sui address from the configured private key,
- *  useful for the status endpoint + setup scripts. */
+/** Derive the primary operator's Sui address, useful for the status
+ *  endpoint + setup scripts. Returns the address of the FIRST key in
+ *  the pool (or the legacy single key when only that's set). */
 export function operatorAddress(env: SuiEnv): string | null {
-    if (!env.SUI_OPERATOR_KEY) return null;
+    const pool = operatorKeyPool(env);
+    if (pool.length === 0) return null;
     try {
-        const kp = operatorKeypair(env.SUI_OPERATOR_KEY);
+        const kp = operatorKeypair(pool[0]);
         return kp.getPublicKey().toSuiAddress();
     } catch {
         return null;
     }
+}
+
+/** Return every operator address in the pool. Used by the ownership
+ *  lookup path — when ensureUserProfile needs to know which existing
+ *  operator owns a given UserProfile, we can match on address. */
+export function operatorAddresses(env: SuiEnv): string[] {
+    const pool = operatorKeyPool(env);
+    const out: string[] = [];
+    for (const k of pool) {
+        try { out.push(operatorKeypair(k).getPublicKey().toSuiAddress()); }
+        catch { /* skip malformed */ }
+    }
+    return out;
 }
 
 // ---------- helpers ----------

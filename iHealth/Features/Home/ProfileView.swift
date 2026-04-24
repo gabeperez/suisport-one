@@ -12,9 +12,10 @@ struct ProfileView: View {
     @State private var selectedTrophy: Trophy?
     @State private var selectedAthleteId: String?
     @State private var sweatBalance: String?
+    @State private var showLogoutConfirm = false
 
     enum ComingSoonKind: String, Identifiable {
-        case cashout, notifications, appleHealth, privacy
+        case cashout, appleHealth, privacy
         var id: String { rawValue }
     }
 
@@ -23,6 +24,7 @@ struct ProfileView: View {
             ScrollView {
                 VStack(spacing: Theme.Space.md) {
                     hero
+                    redeemChip
                     quickStats
                     showcase
                     streakRow
@@ -53,6 +55,13 @@ struct ProfileView: View {
                         Button { showAdvanced = true } label: {
                             Label("Advanced", systemImage: "terminal")
                         }
+                        Divider()
+                        Button(role: .destructive) {
+                            showLogoutConfirm = true
+                        } label: {
+                            Label("Log out",
+                                  systemImage: "rectangle.portrait.and.arrow.right")
+                        }
                     } label: {
                         Image(systemName: "ellipsis.circle")
                             .font(.system(size: 17, weight: .semibold))
@@ -72,10 +81,6 @@ struct ProfileView: View {
                     ComingSoonSheet(icon: "arrow.up.right.square.fill",
                                     title: "Cash out to $SWEAT",
                                     message: "Swap your Sweat Points for on-chain $SWEAT from the companion wallet. We're polishing the last bits.")
-                case .notifications:
-                    ComingSoonSheet(icon: "bell.fill",
-                                    title: "Notifications",
-                                    message: "Streak nudges, kudos alerts, and club pings. Manage them in iOS Settings → SuiSport for now.")
                 case .appleHealth:
                     ComingSoonSheet(icon: "heart.fill",
                                     title: "Apple Health",
@@ -85,6 +90,14 @@ struct ProfileView: View {
                                     title: "Privacy",
                                     message: "Control who sees your workouts, map traces, and leaderboard entries. Per-activity privacy is in the roadmap.")
                 }
+            }
+            .alert("Log out?", isPresented: $showLogoutConfirm) {
+                Button("Cancel", role: .cancel) {}
+                Button("Log out", role: .destructive) {
+                    app.signOut()
+                }
+            } message: {
+                Text("You'll need to sign back in to see your workouts and points.")
             }
             .sheet(item: $selectedTrophy) { t in
                 TrophyDetailSheet(trophy: t)
@@ -265,6 +278,63 @@ struct ProfileView: View {
                 .overlay(Circle().strokeBorder(.white.opacity(0.2), lineWidth: 1))
         }
         .buttonStyle(.plain)
+    }
+
+    // MARK: - Redeem chip
+    // Surfaces the Rewards sheet the moment a user earns a point — a
+    // Menu-only entry point left too many first-time users wondering what
+    // their points were for.
+    @ViewBuilder
+    private var redeemChip: some View {
+        if app.sweatPoints.total > 0 {
+            Button {
+                Haptics.tap()
+                showRewards = true
+            } label: {
+                HStack(spacing: 12) {
+                    ZStack {
+                        Circle()
+                            .fill(
+                                LinearGradient(
+                                    colors: [Color(red: 1.00, green: 0.80, blue: 0.25),
+                                             Color(red: 0.95, green: 0.55, blue: 0.15)],
+                                    startPoint: .topLeading, endPoint: .bottomTrailing
+                                )
+                            )
+                            .frame(width: 36, height: 36)
+                        Image(systemName: "gift.fill")
+                            .font(.system(size: 16, weight: .bold))
+                            .foregroundStyle(.white)
+                    }
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Redeem \(app.sweatPoints.total) points")
+                            .font(.system(size: 15, weight: .bold, design: .rounded))
+                            .foregroundStyle(Theme.Color.ink)
+                        Text("Turn them into gear, gift cards, or on-chain $SWEAT.")
+                            .font(.system(size: 11, weight: .medium, design: .rounded))
+                            .foregroundStyle(Theme.Color.inkSoft)
+                            .lineLimit(1)
+                    }
+                    Spacer(minLength: 8)
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundStyle(Theme.Color.inkFaint)
+                }
+                .padding(12)
+                .background(
+                    RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous)
+                        .fill(Theme.Color.bgElevated)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous)
+                        .strokeBorder(
+                            Color(red: 0.95, green: 0.55, blue: 0.15).opacity(0.35),
+                            lineWidth: 1
+                        )
+                )
+            }
+            .buttonStyle(.plain)
+        }
     }
 
     // MARK: - Quick stats
@@ -646,7 +716,7 @@ struct ProfileView: View {
             }
             Divider().padding(.leading, 52)
             menuRow("Notifications", icon: "bell.fill") {
-                pendingComingSoon = .notifications
+                openNotificationSettings()
             }
             Divider().padding(.leading, 52)
             menuRow("Apple Health", icon: "heart.fill") {
@@ -660,6 +730,14 @@ struct ProfileView: View {
             menuRow("Advanced", icon: "terminal.fill") { showAdvanced = true }
         }
         .background(RoundedRectangle(cornerRadius: Theme.Radius.md).fill(Theme.Color.bgElevated))
+    }
+
+    /// Deep-links to iOS Settings → SuiSport where the user can manage push
+    /// auth, badges, and sound. Push is actually wired now — there's no
+    /// in-app toggle to show.
+    private func openNotificationSettings() {
+        guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
+        UIApplication.shared.open(url)
     }
 
     private var shareText: String {

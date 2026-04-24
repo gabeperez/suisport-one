@@ -25,7 +25,13 @@ export type Env = {
     SUI_REWARDS_ENGINE_ID?: string;      // shared RewardsEngine
     SUI_ORACLE_CAP_ID?: string;          // OracleCap owned by operator
     SUI_VERSION_OBJECT_ID?: string;      // shared Version
-    SUI_OPERATOR_KEY?: string;           // base64 Ed25519 secret key
+    SUI_OPERATOR_KEY?: string;           // base64 Ed25519 secret key (single-key legacy)
+    // Optional comma-separated list of operator keys. When set we
+    // fan out users across these keys, so multiple UserProfile objects
+    // can be submitted in parallel without racing on gas coins or
+    // version objects owned by one keypair. If SUI_OPERATOR_KEYS is
+    // empty we fall back to SUI_OPERATOR_KEY (single-key mode).
+    SUI_OPERATOR_KEYS?: string;
     ORACLE_PRIVATE_KEY?: string;         // base64 Ed25519 secret key (attestation signer)
     WALRUS_PUBLISHER_URL?: string;
     WALRUS_AGGREGATOR_URL?: string;

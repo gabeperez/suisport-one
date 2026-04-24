@@ -7,12 +7,6 @@ struct AthleteProfileView: View {
     @State private var selectedItem: FeedItem?
     @State private var showEdit = false
     @State private var showShare = false
-    @State private var pendingSoon: ComingSoonKind?
-
-    enum ComingSoonKind: String, Identifiable {
-        case message, tip
-        var id: String { rawValue }
-    }
 
     private var athlete: Athlete? {
         if let me = social.me, me.id == athleteId { return me }
@@ -45,18 +39,6 @@ struct AthleteProfileView: View {
         .sheet(isPresented: $showEdit) { EditProfileSheet() }
         .sheet(isPresented: $showShare) {
             ShareSheet(items: [shareText])
-        }
-        .sheet(item: $pendingSoon) { kind in
-            switch kind {
-            case .message:
-                ComingSoonSheet(icon: "bubble.left.fill",
-                                title: "Messaging",
-                                message: "End-to-end encrypted DMs with your crew are nearly ready. Tip someone on their next run until then.")
-            case .tip:
-                ComingSoonSheet(icon: "bolt.heart.fill",
-                                title: "Tip with $SWEAT",
-                                message: "Tipping from your wallet to an athlete runs on a sponsored PTB. We're waiting on the Enoki mainnet flag.")
-            }
         }
     }
 
@@ -155,13 +137,9 @@ struct AthleteProfileView: View {
                     tint: isFollowing ? Theme.Color.bgElevated : Theme.Color.ink,
                     fg: isFollowing ? Theme.Color.ink : Theme.Color.inkInverse
                 ) { isFollowing.toggle() }
-                PillButton(title: "Message", icon: "bubble.left",
+                PillButton(title: "Share", icon: "square.and.arrow.up",
                            tint: Theme.Color.bgElevated, fg: Theme.Color.ink) {
-                    pendingSoon = .message
-                }
-                PillButton(title: "Tip", icon: "bolt.heart.fill",
-                           tint: Theme.Color.gold, fg: Theme.Color.accentInk) {
-                    pendingSoon = .tip
+                    showShare = true
                 }
             }
         }
@@ -170,26 +148,65 @@ struct AthleteProfileView: View {
     // MARK: - Segments / badges strip
 
     private func segmentsBadges(_ a: Athlete) -> some View {
+        // KOMs and Challenges aren't on the Athlete DTO yet — we used to
+        // fabricate them with Int.random which shipped bogus numbers on real
+        // profiles. Show zero with a "Soon" hint until the backend exposes
+        // them. Trophies are real only for the signed-in user; for other
+        // athletes we don't have their count yet so we mark it Soon too.
         HStack(spacing: 12) {
-            smallStat(icon: "crown.fill", label: "KOMs", value: "\(Int.random(in: 0...8))", tint: Theme.Color.gold)
-            smallStat(icon: "flag.checkered", label: "Challenges", value: "\(Int.random(in: 2...18))", tint: Theme.Color.violet)
-            smallStat(icon: "trophy.fill", label: "Trophies", value: "\(social.trophies.filter { !$0.isLocked }.count)", tint: Theme.Color.hot)
+            smallStat(icon: "crown.fill",
+                      label: "KOMs",
+                      value: "0",
+                      tint: Theme.Color.gold,
+                      isPlaceholder: true)
+            smallStat(icon: "flag.checkered",
+                      label: "Challenges",
+                      value: "0",
+                      tint: Theme.Color.violet,
+                      isPlaceholder: true)
+            if isMe {
+                smallStat(icon: "trophy.fill",
+                          label: "Trophies",
+                          value: "\(social.trophies.filter { !$0.isLocked }.count)",
+                          tint: Theme.Color.hot,
+                          isPlaceholder: false)
+            } else {
+                smallStat(icon: "trophy.fill",
+                          label: "Trophies",
+                          value: "0",
+                          tint: Theme.Color.hot,
+                          isPlaceholder: true)
+            }
         }
     }
 
-    private func smallStat(icon: String, label: String, value: String, tint: Color) -> some View {
+    private func smallStat(icon: String,
+                           label: String,
+                           value: String,
+                           tint: Color,
+                           isPlaceholder: Bool) -> some View {
         VStack(spacing: 4) {
             HStack(spacing: 4) {
                 Image(systemName: icon)
                     .font(.system(size: 12, weight: .bold))
-                    .foregroundStyle(tint)
+                    .foregroundStyle(isPlaceholder ? Theme.Color.inkFaint : tint)
                 Text(value)
                     .font(.system(size: 16, weight: .bold, design: .rounded))
-                    .foregroundStyle(Theme.Color.ink)
+                    .foregroundStyle(isPlaceholder ? Theme.Color.inkFaint : Theme.Color.ink)
             }
-            Text(label)
-                .font(.system(size: 10, weight: .semibold, design: .rounded))
-                .foregroundStyle(Theme.Color.inkSoft)
+            HStack(spacing: 4) {
+                Text(label)
+                    .font(.system(size: 10, weight: .semibold, design: .rounded))
+                    .foregroundStyle(Theme.Color.inkSoft)
+                if isPlaceholder {
+                    Text("soon")
+                        .font(.system(size: 8, weight: .bold, design: .rounded))
+                        .tracking(0.4)
+                        .foregroundStyle(Theme.Color.inkFaint)
+                        .padding(.horizontal, 4).padding(.vertical, 1)
+                        .background(Capsule().fill(Theme.Color.surface))
+                }
+            }
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 10)

@@ -1,9 +1,12 @@
 import Foundation
 
 enum OnboardingStep: Int, CaseIterable, Comparable {
+    // Order: hero → ageGate (before anything that creates an account or reads
+    // Health data — legal requirement) → auth → nameGoal → healthPermission
+    // → backfill → notifications.
     case hero = 0
-    case auth = 1
-    case ageGate = 2
+    case ageGate = 1
+    case auth = 2
     case nameGoal = 3
     case healthPermission = 4
     case backfill = 5

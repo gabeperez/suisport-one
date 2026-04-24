@@ -15,6 +15,11 @@ final class AppState {
     var hasCompletedOnboarding: Bool = false
     var isAuthInFlight: Bool = false
 
+    /// DOB captured before auth (AgeGate is now the first gated step). We can't
+    /// PATCH the athlete row until we have a session token, so we stash it and
+    /// replay once the user signs in.
+    private var pendingDateOfBirth: Date?
+
     // MARK: - Data
     var workouts: [Workout] = []
     var sweatPoints: SweatPoints = .zero
@@ -46,6 +51,7 @@ final class AppState {
             let user = try await AuthService.shared.signInWithApple()
             self.currentUser = user
             UserDefaults.standard.set("apple", forKey: "lastAuthProvider")
+            applyPendingDateOfBirth()
             advanceOnboarding()
         } catch AuthService.AuthError.cancelled {
             // silent — user tapped cancel
@@ -61,6 +67,7 @@ final class AppState {
             let user = try await AuthService.shared.signInWithGoogle()
             self.currentUser = user
             UserDefaults.standard.set("google", forKey: "lastAuthProvider")
+            applyPendingDateOfBirth()
             advanceOnboarding()
         } catch {
             // ignore
@@ -76,10 +83,27 @@ final class AppState {
             )
             self.currentUser = user
             UserDefaults.standard.set("wallet", forKey: "lastAuthProvider")
+            applyPendingDateOfBirth()
             advanceOnboarding()
         } catch {
             // ignore
         }
+    }
+
+    /// Clears the session, demo id, and cached user state so ContentView
+    /// routes back to onboarding on next render. Called from the profile
+    /// toolbar → Log out.
+    func signOut() {
+        APIClient.shared.sessionToken = nil
+        APIClient.shared.demoAthleteId = nil
+        currentUser = nil
+        hasCompletedOnboarding = false
+        onboardingStep = .hero
+        workouts = []
+        sweatPoints = .zero
+        healthAuthorized = false
+        pendingDateOfBirth = nil
+        UserDefaults.standard.removeObject(forKey: "lastAuthProvider")
     }
 
     func setGoal(_ goal: UserGoal?, displayName: String) {
@@ -93,7 +117,26 @@ final class AppState {
     }
 
     /// Persists DOB on the signed-in user and PATCHes the athlete row (unix seconds).
+    /// AgeGate runs before auth now, so if there is no `currentUser` yet we
+    /// stash the date and replay it inside the sign-in methods.
     func setDOB(_ date: Date) {
+        if var user = currentUser {
+            user.dateOfBirth = date
+            currentUser = user
+            let unix = Int(date.timeIntervalSince1970)
+            Task {
+                _ = try? await APIClient.shared.updateMe(AthletePatch(dob: unix))
+            }
+        } else {
+            pendingDateOfBirth = date
+        }
+    }
+
+    /// After a successful sign-in, write any DOB captured pre-auth onto the
+    /// new user and sync it up to the backend.
+    private func applyPendingDateOfBirth() {
+        guard let date = pendingDateOfBirth else { return }
+        pendingDateOfBirth = nil
         if var user = currentUser {
             user.dateOfBirth = date
             currentUser = user

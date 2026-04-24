@@ -74,12 +74,19 @@ final class SocialDataService {
 
     var lastRefreshedAt: Date?
     var isRefreshing: Bool = false
+    /// Set when the last refresh() errored out (network failure, 5xx, etc).
+    /// FeedView shows a retry banner while this is true.
+    var lastRefreshError: Bool = false
+    /// Tracks whether we detected an offline condition during the last
+    /// refresh (e.g. notConnectedToInternet). Used to tailor the banner
+    /// copy and to know whether a retry has a chance of succeeding.
+    var isOffline: Bool = false
 
-    /// Cursor for the next page of feed items. `nil` after a refresh
-    /// = more pages. `nil` after a loadMore that returned zero new
-    /// items = end of feed. Private to this service; views trigger
-    /// loadMoreFeed() and observe feed.count growing.
-    private var feedNextBefore: Double?
+    /// Cursor for the next page of feed items, opaque "<key>:<id>"
+    /// string from the server. `nil` = end of feed. Private to this
+    /// service; views trigger loadMoreFeed() and observe feed.count
+    /// growing.
+    private var feedNextBefore: String?
     private var isLoadingMore = false
     var hasMoreFeed: Bool { feedNextBefore != nil }
 
@@ -98,26 +105,53 @@ final class SocialDataService {
         isRefreshing = true
         defer { isRefreshing = false }
 
-        async let feedResult: FeedEnvelope? = try? APIClient.shared.fetchFeedPage(sort: "recent", limit: 30)
+        // Fetch the primary (feed) with an explicit do/catch so we can
+        // classify offline vs server errors for the banner. Secondary
+        // calls stay optional — a failing /shoes or /prs shouldn't
+        // flag the whole refresh as errored.
+        var feedEnv: FeedEnvelope?
+        var refreshHadError = false
+        var offlineDetected = false
+        do {
+            feedEnv = try await APIClient.shared.fetchFeedPage(sort: "recent", limit: 30)
+        } catch let url as URLError {
+            refreshHadError = true
+            offlineDetected = [
+                .notConnectedToInternet, .networkConnectionLost,
+                .timedOut, .cannotFindHost, .cannotConnectToHost,
+                .dataNotAllowed, .internationalRoamingOff
+            ].contains(url.code)
+        } catch {
+            refreshHadError = true
+        }
+
         async let clubsResult: [ClubDTO]? = try? APIClient.shared.fetchClubs(filter: "all")
         async let meResult: AthleteDTO? = try? APIClient.shared.fetchMe()
         async let shoesResult: [ShoeDTO]? = try? APIClient.shared.fetchShoes(athleteId: "0xdemo_me")
         async let prsResult: [PRDTO]? = try? APIClient.shared.fetchPRs(athleteId: "0xdemo_me")
 
-        let (fetchedFeed, fetchedClubs, fetchedMe, fetchedShoes, fetchedPRs) =
-            await (feedResult, clubsResult, meResult, shoesResult, prsResult)
+        let (fetchedClubs, fetchedMe, fetchedShoes, fetchedPRs) =
+            await (clubsResult, meResult, shoesResult, prsResult)
 
-        if let env = fetchedFeed, !env.items.isEmpty {
+        if let env = feedEnv, !env.items.isEmpty {
             let items = env.items.map(FeedItem.init(dto:))
             feed = items
             feedItemApiIds = Dictionary(uniqueKeysWithValues:
                 zip(items.map(\.id), env.items.map(\.id)))
             feedNextBefore = env.nextBefore
-            // Harvest athletes from feed so profile taps resolve.
-            let seen = Set(athletes.map(\.id))
-            let newAthletes = env.items.map { Athlete(dto: $0.athlete) }
-                .filter { !seen.contains($0.id) }
-            athletes.append(contentsOf: newAthletes)
+            // Harvest athletes from feed so profile taps resolve. Use a
+            // dictionary keyed on id so repeat refreshes can't bloat
+            // the list with duplicates of the same athlete — new ones
+            // are appended, existing ones stay in their original slot.
+            var byId: [String: Int] = [:]
+            for (idx, a) in athletes.enumerated() { byId[a.id] = idx }
+            for dto in env.items.map(\.athlete) {
+                if byId[dto.id] == nil {
+                    let a = Athlete(dto: dto)
+                    byId[a.id] = athletes.count
+                    athletes.append(a)
+                }
+            }
         }
         if let dtos = fetchedClubs, !dtos.isEmpty {
             let mapped = dtos.map(Club.init(dto:))
@@ -139,6 +173,8 @@ final class SocialDataService {
         }
 
         lastRefreshedAt = .now
+        lastRefreshError = refreshHadError
+        isOffline = offlineDetected
     }
 
     /// Appends the next page of feed items if there's a cursor + we're
@@ -163,11 +199,17 @@ final class SocialDataService {
         for (m, dto) in fresh {
             feedItemApiIds[m.id] = dto.id
         }
-        // Harvest athletes from the new page too.
-        let seen = Set(athletes.map(\.id))
-        let newAthletes = env.items.map { Athlete(dto: $0.athlete) }
-            .filter { !seen.contains($0.id) }
-        athletes.append(contentsOf: newAthletes)
+        // Harvest athletes from the new page too — dedup on id so
+        // repeat pages don't bloat the list.
+        var byId: [String: Int] = [:]
+        for (idx, a) in athletes.enumerated() { byId[a.id] = idx }
+        for dto in env.items.map(\.athlete) {
+            if byId[dto.id] == nil {
+                let a = Athlete(dto: dto)
+                byId[a.id] = athletes.count
+                athletes.append(a)
+            }
+        }
         feedNextBefore = env.nextBefore
     }
 
@@ -215,9 +257,39 @@ final class SocialDataService {
               let me else { return }
         let trimmed = body.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
-        feed[idx].comments.append(
-            Comment(id: UUID(), athlete: me, body: trimmed, at: .now, reactions: [:])
+        // Optimistic insert. FeedItem.commentCount is derived from
+        // comments.count so appending here bumps the visible count.
+        let optimistic = Comment(
+            id: UUID(), athlete: me, body: trimmed, at: .now, reactions: [:]
         )
+        feed[idx].comments.append(optimistic)
+
+        let apiId = apiIdForFeedItem(feedItemId)
+        guard !apiId.isEmpty else { return }
+        // Post to the server; on failure, roll back the optimistic
+        // append on the MainActor so the local state stays consistent
+        // with what the server sees.
+        Task.detached { [weak self] in
+            do {
+                try await APIClient.shared.postComment(feedItemId: apiId, body: trimmed)
+            } catch {
+                await self?.rollbackOptimisticComment(commentId: optimistic.id,
+                                                      feedItemId: feedItemId)
+            }
+        }
+    }
+
+    private func rollbackOptimisticComment(commentId: UUID, feedItemId: UUID) {
+        guard let idx = feed.firstIndex(where: { $0.id == feedItemId }) else { return }
+        feed[idx].comments.removeAll { $0.id == commentId }
+    }
+
+    /// Removes a feed item locally. Called after a successful DELETE
+    /// /v1/workouts/<id> so the list updates without waiting for the
+    /// next refresh.
+    func remove(feedItemId: UUID) {
+        feed.removeAll { $0.id == feedItemId }
+        feedItemApiIds[feedItemId] = nil
     }
 
     func toggleClubMembership(_ clubId: UUID) {

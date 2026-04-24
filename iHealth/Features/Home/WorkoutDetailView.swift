@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 struct WorkoutDetailView: View {
     let feedItemId: UUID
@@ -9,6 +10,9 @@ struct WorkoutDetailView: View {
     @State private var commentText = ""
     @FocusState private var commentFocused: Bool
     @State private var selectedAthlete: Athlete?
+    @State private var showDeleteConfirm = false
+    @State private var isDeleting = false
+    @State private var deleteError: String?
 
     var body: some View {
         ScrollView {
@@ -34,9 +38,21 @@ struct WorkoutDetailView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                Button { showShare = true } label: {
-                    Image(systemName: "square.and.arrow.up")
-                        .font(.system(size: 15, weight: .semibold))
+                HStack(spacing: 8) {
+                    if isOwnWorkout {
+                        Button(role: .destructive) {
+                            Haptics.tap()
+                            showDeleteConfirm = true
+                        } label: {
+                            Image(systemName: "trash")
+                                .font(.system(size: 15, weight: .semibold))
+                        }
+                        .disabled(isDeleting)
+                    }
+                    Button { showShare = true } label: {
+                        Image(systemName: "square.and.arrow.up")
+                            .font(.system(size: 15, weight: .semibold))
+                    }
                 }
             }
         }
@@ -48,8 +64,60 @@ struct WorkoutDetailView: View {
                     .presentationCornerRadius(Theme.Radius.xl)
             }
         }
+        .alert("Delete this workout?", isPresented: $showDeleteConfirm) {
+            Button("Cancel", role: .cancel) {}
+            Button("Delete", role: .destructive) {
+                Task { await deleteCurrent() }
+            }
+        } message: {
+            Text("This removes the workout and its feed post. Proof + points already minted on-chain will stay, but the post won't be visible.")
+        }
+        .alert("Couldn't delete", isPresented: Binding(
+            get: { deleteError != nil },
+            set: { if !$0 { deleteError = nil } }
+        )) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(deleteError ?? "")
+        }
         .navigationDestination(item: $selectedAthlete) { a in
             AthleteProfileView(athleteId: a.id)
+        }
+    }
+
+    private var isOwnWorkout: Bool {
+        guard let item = current, let me = social.me else { return false }
+        return item.athlete.id == me.id
+    }
+
+    @MainActor
+    private func deleteCurrent() async {
+        guard let item = current else { return }
+        isDeleting = true
+        defer { isDeleting = false }
+        let apiId = social.apiIdForFeedItem(item.id)
+        // Server DELETE only when we have a real backend id — seeded
+        // items without one get yanked locally so the UI stays honest.
+        if !apiId.isEmpty {
+            do {
+                try await APIClient.shared.deleteWorkout(id: apiId)
+            } catch {
+                deleteError = (error as? APIError).map(errorDescription(_:))
+                    ?? error.localizedDescription
+                return
+            }
+        }
+        social.remove(feedItemId: item.id)
+        Haptics.success()
+        dismiss()
+    }
+
+    private func errorDescription(_ err: APIError) -> String {
+        switch err {
+        case .notImplemented: return "Delete isn't available yet."
+        case .transport(let e): return e.localizedDescription
+        case .server(let code, let msg):
+            return msg.isEmpty ? "Server error (\(code))" : msg
         }
     }
 
@@ -494,6 +562,10 @@ struct StreakSheet: View {
 struct ShareCardSheet: View {
     let item: FeedItem
 
+    @State private var showSystemShare = false
+    @State private var showInstagramMissing = false
+    @State private var toast: String?
+
     var body: some View {
         VStack(spacing: Theme.Space.lg) {
             Text("Share your workout")
@@ -505,12 +577,124 @@ struct ShareCardSheet: View {
             Spacer()
             HStack(spacing: 10) {
                 PrimaryButton(title: "Instagram Stories", icon: "camera.fill",
-                              tint: Theme.Color.violet, fg: .white) {}
+                              tint: Theme.Color.violet, fg: .white) {
+                    shareToInstagramStories()
+                }
                 PrimaryButton(title: "Copy image", icon: "doc.on.doc",
-                              tint: Theme.Color.bgElevated, fg: Theme.Color.ink) {}
+                              tint: Theme.Color.bgElevated, fg: Theme.Color.ink) {
+                    copyCardImage()
+                }
+            }
+            PrimaryButton(title: "More…", icon: "square.and.arrow.up",
+                          tint: Theme.Color.bgElevated, fg: Theme.Color.ink) {
+                showSystemShare = true
             }
         }
         .padding(Theme.Space.lg)
+        .overlay(alignment: .top) {
+            if let toast {
+                Text(toast)
+                    .font(.system(size: 13, weight: .semibold, design: .rounded))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 14).padding(.vertical, 8)
+                    .background(Capsule().fill(Theme.Color.ink))
+                    .padding(.top, Theme.Space.lg)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+            }
+        }
+        .animation(Theme.Motion.snap, value: toast)
+        .sheet(isPresented: $showSystemShare) {
+            ShareSheet(items: [systemShareText, systemShareURL])
+        }
+        .alert("Instagram not installed", isPresented: $showInstagramMissing) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("Install Instagram to share directly to your Stories.")
+        }
+    }
+
+    /// Short plain-text description for the system share sheet, mirrors
+    /// the feed-card copy ("Ajoy ran 5.2 km in 32 min on SuiSport").
+    private var systemShareText: String {
+        let who = item.athlete.displayName
+        let verb: String
+        switch item.workout.type {
+        case .run: verb = "ran"
+        case .ride: verb = "rode"
+        case .walk: verb = "walked"
+        case .hike: verb = "hiked"
+        case .swim: verb = "swam"
+        default: verb = "trained"
+        }
+        let t = Int(item.workout.duration)
+        let h = t / 3600; let m = (t % 3600) / 60
+        let time = h > 0 ? "\(h)h \(m)m" : "\(m) min"
+        if let d = item.workout.distanceMeters, d > 0 {
+            let km = String(format: "%.1f", d / 1000)
+            return "\(who) \(verb) \(km) km in \(time) on SuiSport"
+        }
+        return "\(who) \(verb) for \(time) on SuiSport"
+    }
+
+    private var systemShareURL: URL {
+        URL(string: "https://suisport.app/w/\(item.id.uuidString)")
+            ?? URL(string: "https://suisport.app")!
+    }
+
+    @MainActor
+    private func renderCard() -> UIImage? {
+        // Render the same view the sheet displays at 2x for crisp
+        // output at Stories resolution. MainActor-only because
+        // ImageRenderer is MainActor-isolated.
+        let renderer = ImageRenderer(content:
+            shareCard
+                .frame(width: 360)
+                .padding(22)
+        )
+        renderer.scale = 3
+        return renderer.uiImage
+    }
+
+    @MainActor
+    private func copyCardImage() {
+        guard let image = renderCard() else { return }
+        UIPasteboard.general.image = image
+        Haptics.success()
+        flashToast("Copied")
+    }
+
+    @MainActor
+    private func shareToInstagramStories() {
+        guard let instagramURL = URL(string: "instagram-stories://share?source_application=suisport"),
+              UIApplication.shared.canOpenURL(instagramURL) else {
+            showInstagramMissing = true
+            return
+        }
+        guard let image = renderCard(),
+              let data = image.pngData() else { return }
+        // Instagram Stories uses a pasteboard hand-off — set the
+        // sticker image + a ~5min expiration, then open the URL.
+        let items: [[String: Any]] = [[
+            "com.instagram.sharedSticker.stickerImage": data,
+            "com.instagram.sharedSticker.backgroundTopColor": "#0A1424",
+            "com.instagram.sharedSticker.backgroundBottomColor": "#1E052E"
+        ]]
+        let options: [UIPasteboard.OptionsKey: Any] = [
+            .expirationDate: Date().addingTimeInterval(60 * 5)
+        ]
+        UIPasteboard.general.setItems(items, options: options)
+        UIApplication.shared.open(instagramURL)
+        Haptics.success()
+        flashToast("Opening Instagram…")
+    }
+
+    @MainActor
+    private func flashToast(_ text: String) {
+        toast = text
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 1_600_000_000)
+            if toast == text { toast = nil }
+        }
     }
 
     private var shareCard: some View {

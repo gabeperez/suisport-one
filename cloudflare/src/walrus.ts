@@ -75,15 +75,34 @@ export async function walrusDownload(
 }
 
 /** Non-throwing upload for use in the workout pipeline — pipeline keeps
- *  going with a null blob id if Walrus is unreachable. */
+ *  going with a null blob id if Walrus is unreachable.
+ *
+ *  Retries up to 3 times with backoff [500ms, 1500ms, 3500ms]. Walrus
+ *  publishers occasionally 502/503 under load and the retry typically
+ *  succeeds within a few seconds. The total worst case is ~5.5s added
+ *  latency on a doomed upload — callers (workouts.ts) already respond
+ *  from D1 first so the user doesn't feel this in practice. */
 export async function walrusUploadSafe(
     env: WalrusEnv,
     bytes: Uint8Array
 ): Promise<{ blobId: string | null; error?: string }> {
-    try {
-        const res = await walrusUpload(env, bytes);
-        return { blobId: res.blobId };
-    } catch (err) {
-        return { blobId: null, error: err instanceof Error ? err.message : "unknown" };
+    // Attempt N: delay before this attempt. The 0-index element is 0
+    // because the first attempt is immediate.
+    const delaysMs = [0, 500, 1500, 3500];
+    let lastErr: unknown = null;
+    for (let attempt = 0; attempt < delaysMs.length; attempt++) {
+        if (delaysMs[attempt] > 0) {
+            await new Promise((r) => setTimeout(r, delaysMs[attempt]));
+        }
+        try {
+            const res = await walrusUpload(env, bytes);
+            return { blobId: res.blobId };
+        } catch (err) {
+            lastErr = err;
+        }
     }
+    return {
+        blobId: null,
+        error: lastErr instanceof Error ? lastErr.message : "unknown",
+    };
 }

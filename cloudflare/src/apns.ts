@@ -139,32 +139,58 @@ export async function sendPushToAthlete(
         `SELECT token, env FROM push_tokens
          WHERE athlete_id = ? AND disabled_at IS NULL`
     ).bind(athleteId).all<{ token: string; env: string }>();
-    let sent = 0, failed = 0, invalidated = 0;
-    for (const row of tokens.results ?? []) {
-        const r = await sendPush(env, {
+
+    // Fan out to every device concurrently. APNs allows many parallel
+    // connections per provider token + each send is an independent
+    // HTTP/2 stream, so there's no penalty for Promise.all vs. a
+    // sequential loop — just lower tail latency when a user has
+    // multiple devices.
+    const rows = tokens.results ?? [];
+    const results = await Promise.all(rows.map((row) =>
+        sendPush(env, {
             deviceToken: row.token,
             alert,
             threadId: opts.threadId,
             payload: opts.payload,
             category: opts.category,
             env: row.env as "production" | "sandbox",
-        });
+        }).then((r) => ({ row, r }))
+         .catch((err) => ({
+             row,
+             r: {
+                 ok: false,
+                 status: 0,
+                 reason: err instanceof Error ? err.message : "exception",
+                 invalidToken: false,
+             } as ApnsResult,
+         }))
+    ));
+
+    let sent = 0, failed = 0, invalidated = 0;
+    const disableStmts: D1PreparedStatement[] = [];
+    const touchStmts: D1PreparedStatement[] = [];
+    for (const { row, r } of results) {
         if (r.ok) { sent++; continue; }
         failed++;
         if (r.invalidToken) {
             invalidated++;
-            await env.DB.prepare(
+            disableStmts.push(env.DB.prepare(
                 `UPDATE push_tokens
                  SET disabled_at = unixepoch(), last_error = ?, last_error_at = unixepoch()
                  WHERE token = ?`
-            ).bind(r.reason ?? String(r.status), row.token).run();
+            ).bind(r.reason ?? String(r.status), row.token));
         } else {
-            await env.DB.prepare(
+            touchStmts.push(env.DB.prepare(
                 `UPDATE push_tokens
                  SET last_error = ?, last_error_at = unixepoch()
                  WHERE token = ?`
-            ).bind(r.reason ?? String(r.status), row.token).run();
+            ).bind(r.reason ?? String(r.status), row.token));
         }
+    }
+    // One D1 batch for all follow-up writes — still fast, one round-
+    // trip. If the list is empty, skip the batch entirely.
+    if (disableStmts.length + touchStmts.length > 0) {
+        await env.DB.batch([...disableStmts, ...touchStmts]);
     }
     return { sent, failed, invalidated };
 }

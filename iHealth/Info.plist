@@ -27,5 +27,18 @@
             </array>
         </dict>
     </array>
+    <!--
+      Schemes we call `UIApplication.canOpenURL(_:)` on. iOS 9+ refuses
+      to answer (always returns false) unless the scheme is pre-declared
+      here. Adding a scheme doesn't grant any capability; it just lets
+      us ask "is this app installed?" without a prompt.
+    -->
+    <key>LSApplicationQueriesSchemes</key>
+    <array>
+        <!-- WorkoutDetailView's "Instagram Stories" share target -->
+        <string>instagram-stories</string>
+        <!-- WalletConnectBridge's "Use another Sui wallet" fallback -->
+        <string>slush</string>
+    </array>
 </dict>
 </plist>

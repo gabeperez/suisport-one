@@ -31,6 +31,7 @@ import {
     hasSuiConfig,
     submitWorkoutOnChain,
 } from "./sui.js";
+import { resolveOperatorAndProfile } from "./routes/workouts.js";
 
 const MAX_PER_TICK = 20;
 const MAX_RETRIES = 10;
@@ -96,12 +97,15 @@ export async function retryPendingWorkoutsTick(env: Env): Promise<RetryTickResul
             continue;
         }
         try {
-            const profileId = await lookupProfileId(env, row.athlete_id);
-            if (!profileId) {
-                // Still no profile minted; the submit path will retry
-                // next time the user submits. Leave alone.
-                continue;
-            }
+            // Share the same resolver as the POST path. If the
+            // profile was never minted (POST failed before the mint
+            // call completed) this MINTS it here — that's the fix
+            // for the silent-stall bug where we used to skip rows
+            // with no profile. After minting we can submit the
+            // workout in the same tick.
+            const { operator, profileId } = await resolveOperatorAndProfile(
+                env, row.athlete_id
+            );
             const rewardAmount = BigInt(row.points) * 1_000_000_000n;
             const onChain = await submitWorkoutOnChain(env, {
                 athlete: row.athlete_id,
@@ -113,7 +117,7 @@ export async function retryPendingWorkoutsTick(env: Env): Promise<RetryTickResul
                 calories: Math.floor(row.energy_kcal ?? 0),
                 walrusBlobId: new TextEncoder().encode(row.walrus_blob_id),
                 rewardAmount,
-            });
+            }, operator);
             await env.DB.prepare(
                 `UPDATE workouts
                  SET sui_tx_digest = ?, verified = 1, sweat_minted = ?,
@@ -140,13 +144,6 @@ export async function retryPendingWorkoutsTick(env: Env): Promise<RetryTickResul
         attempted: rows.results?.length ?? 0,
         succeeded, failed, skipped_no_walrus,
     };
-}
-
-async function lookupProfileId(env: Env, athleteId: string): Promise<string | null> {
-    const row = await env.DB.prepare(
-        `SELECT profile_object_id FROM sui_user_profiles WHERE athlete_id = ?`
-    ).bind(athleteId).first<{ profile_object_id: string }>();
-    return row?.profile_object_id ?? null;
 }
 
 function workoutTypeCode(t: string): number {

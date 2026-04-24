@@ -8,11 +8,26 @@ import type { Env, Variables } from "./env.js";
 export const AthletePatchSchema = z.object({
     displayName: z.string().min(1).max(40).optional(),
     handle: z.string().regex(/^[a-z0-9_]{2,24}$/).optional(),
-    bio: z.string().max(200).nullable().optional(),
-    location: z.string().max(60).nullable().optional(),
+    // bio / pronouns / location / websiteUrl are user-facing profile
+    // strings surfaced through PATCH /me. Each has a size cap tight
+    // enough to fit in one profile-card row on the iOS client.
+    bio: z.string().max(240).nullable().optional(),
+    pronouns: z.string().max(40).nullable().optional(),
+    location: z.string().max(80).nullable().optional(),
+    websiteUrl: z.string().max(200).nullable().optional().refine(
+        (v) => {
+            if (v == null || v === "") return true;
+            try { new URL(v); return true; } catch { return false; }
+        },
+        { message: "invalid_url" }
+    ),
     avatarTone: z.string().max(20).optional(),
     bannerTone: z.string().max(20).optional(),
+    // Legacy photo key (bulk /v1/media/upload/avatar path); still
+    // accepted for backwards compat with older clients.
     photoR2Key: z.string().max(200).nullable().optional(),
+    // New avatar key written by POST /v1/media/avatar.
+    avatarR2Key: z.string().max(200).nullable().optional(),
     /** Unix seconds — date of birth for 13+ / HealthKit compliance */
     dob: z.number().int().optional(),
 });

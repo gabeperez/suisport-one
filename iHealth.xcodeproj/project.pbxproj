@@ -10,9 +10,22 @@
 		00A2795E2F853C4F00E2E1D1 /* iHealth.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = iHealth.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		00A279702F853C4F00E2E1D1 /* Exceptions for "iHealth" folder in "iHealth" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 00A2795D2F853C4F00E2E1D1 /* iHealth */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		00A279602F853C4F00E2E1D1 /* iHealth */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				00A279702F853C4F00E2E1D1 /* Exceptions for "iHealth" folder in "iHealth" target */,
+			);
 			path = iHealth;
 			sourceTree = "<group>";
 		};

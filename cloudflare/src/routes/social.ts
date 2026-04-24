@@ -53,10 +53,13 @@ social.patch("/me", async (c) => {
     if (body.displayName != null) { fields.push("display_name = ?"); binds.push(body.displayName); }
     if (body.handle != null) { fields.push("handle = ?"); binds.push(body.handle); }
     if (body.bio !== undefined) { fields.push("bio = ?"); binds.push(body.bio); }
+    if (body.pronouns !== undefined) { fields.push("pronouns = ?"); binds.push(body.pronouns); }
     if (body.location !== undefined) { fields.push("location = ?"); binds.push(body.location); }
+    if (body.websiteUrl !== undefined) { fields.push("website_url = ?"); binds.push(body.websiteUrl); }
     if (body.avatarTone != null) { fields.push("avatar_tone = ?"); binds.push(body.avatarTone); }
     if (body.bannerTone != null) { fields.push("banner_tone = ?"); binds.push(body.bannerTone); }
     if (body.photoR2Key !== undefined) { fields.push("photo_r2_key = ?"); binds.push(body.photoR2Key); }
+    if (body.avatarR2Key !== undefined) { fields.push("avatar_r2_key = ?"); binds.push(body.avatarR2Key); }
     if (body.dob != null) { fields.push("dob = ?"); binds.push(body.dob); }
     if (!fields.length) return c.json({ ok: true });
     fields.push("updated_at = unixepoch()");
@@ -72,27 +75,63 @@ social.patch("/me", async (c) => {
 social.get("/feed", async (c) => {
     const sort = c.req.query("sort") ?? "recent";
     const limit = Math.min(parseInt(c.req.query("limit") ?? "30", 10), 100);
-    // Cursor = `before` in unix seconds. When present, we only return
-    // items whose ordering key is strictly less than it — keyset
-    // pagination, so the server never needs to count-skip.
-    const before = c.req.query("before");
-    const beforeN = before ? parseInt(before, 10) : null;
 
+    // Composite cursor = `<orderingKey>:<feedItemId>`. The ordering
+    // key is `start_date` for recent and `created_at` for kudos-sort.
+    // Adding an id tiebreaker means two items sharing the same
+    // ordering key (common when seeded demo rows share a second, or
+    // when the same athlete logs two workouts back-to-back) page in
+    // a deterministic order. Without the tiebreaker the OFFSET keeps
+    // returning the same row forever.
+    //
+    // Wire formats supported for backwards-compat:
+    //   - "<orderingKey>"              (legacy, no tiebreaker)
+    //   - "<orderingKey>:<feedItemId>" (new, stable)
+    const before = c.req.query("before");
+    let beforeN: number | null = null;
+    let beforeId: string | null = null;
+    if (before) {
+        const colon = before.indexOf(":");
+        if (colon > 0) {
+            beforeN = parseInt(before.slice(0, colon), 10);
+            beforeId = before.slice(colon + 1);
+            if (!Number.isFinite(beforeN)) beforeN = null;
+        } else {
+            beforeN = parseInt(before, 10);
+            if (!Number.isFinite(beforeN)) beforeN = null;
+        }
+    }
+
+    // For kudos-sort we keep kudos_count as the primary order key in
+    // the SELECT (hot posts float up) but paginate by the
+    // monotonic (created_at, id) pair. This keeps the cursor stable
+    // even when someone kudos'd an older post between page loads.
+    // The primary key still drives the visual ordering.
     const order = sort === "kudos"
-        ? "fi.kudos_count DESC, fi.created_at DESC"
-        : "w.start_date DESC";
-    const cursorClause = beforeN != null
-        ? (sort === "kudos" ? "AND fi.created_at < ?" : "AND w.start_date < ?")
-        : "";
+        ? "fi.kudos_count DESC, fi.created_at DESC, fi.id DESC"
+        : "w.start_date DESC, fi.id DESC";
+    let cursorClause = "";
+    const cursorBinds: unknown[] = [];
+    if (beforeN != null) {
+        if (beforeId != null) {
+            cursorClause = sort === "kudos"
+                ? "AND (fi.created_at < ? OR (fi.created_at = ? AND fi.id < ?))"
+                : "AND (w.start_date < ? OR (w.start_date = ? AND fi.id < ?))";
+            cursorBinds.push(beforeN, beforeN, beforeId);
+        } else {
+            cursorClause = sort === "kudos"
+                ? "AND fi.created_at < ?"
+                : "AND w.start_date < ?";
+            cursorBinds.push(beforeN);
+        }
+    }
 
     const sql = `SELECT fi.*, a.id AS _a_id, w.id AS _w_id FROM feed_items fi
                  JOIN athletes a ON a.id = fi.athlete_id
                  JOIN workouts w ON w.id = fi.workout_id
                  WHERE a.suspended_at IS NULL ${cursorClause}
                  ORDER BY ${order} LIMIT ?`;
-    const stmt = beforeN != null
-        ? c.env.DB.prepare(sql).bind(beforeN, limit)
-        : c.env.DB.prepare(sql).bind(limit);
+    const stmt = c.env.DB.prepare(sql).bind(...cursorBinds, limit);
     const rows = await stmt.all<FeedItemRow & { _a_id: string; _w_id: string }>();
 
     // Batch-fetch athletes + workouts referenced in the feed slice.
@@ -118,15 +157,21 @@ social.get("/feed", async (c) => {
             return a && w ? feedItemDTO(r, a, w) : null;
         })
         .filter(Boolean);
-    // Next cursor = ordering key of the last item, or null when the
-    // page was short (no more pages).
-    let nextBefore: number | null = null;
+    // Next cursor = "<orderingKey>:<feedItemId>" of the last row.
+    // Legacy `nextBefore` as a plain number is kept for clients that
+    // haven't upgraded — they just lose stability at ties.
+    let nextBefore: string | null = null;
+    let nextBeforeLegacy: number | null = null;
     if (rows.results.length === limit) {
         const last = rows.results[rows.results.length - 1];
         const lastW = wById.get(last.workout_id);
-        nextBefore = sort === "kudos" ? last.created_at : (lastW?.start_date ?? null);
+        const key = sort === "kudos" ? last.created_at : (lastW?.start_date ?? null);
+        if (key != null) {
+            nextBefore = `${key}:${last.id}`;
+            nextBeforeLegacy = key;
+        }
     }
-    return c.json({ items, nextBefore });
+    return c.json({ items, nextBefore, nextBeforeLegacy });
 });
 
 // ---------- Kudos + comments ----------
@@ -134,22 +179,28 @@ social.get("/feed", async (c) => {
 // Kudos: pure heart/clap toggle. No payment semantics. The body's
 // `tip` field is accepted (older clients may send it) but ignored.
 // Use POST /feed/:id/tip to send sweat.
+//
+// The INSERT OR IGNORE + UPDATE uses `changes()` inside SQL so the
+// counter bump is skipped when the row already existed (user double-
+// tapped). This avoids the old pattern of re-counting every row in
+// kudos on every tap, which both drifts when rows are deleted out
+// from under it AND scales O(n) per-action.
 social.post("/feed/:id/kudos", async (c) => {
     const athleteId = requireAthlete(c);
     const feedItemId = c.req.param("id");
     await parseBody(c, KudosSchema).catch(() => ({ tip: 0 }));   // validate + discard
     const kudosId = crypto.randomUUID();
-    await c.env.DB.batch([
-        c.env.DB.prepare(
-            `INSERT OR IGNORE INTO kudos (id, feed_item_id, athlete_id, amount_sweat)
-             VALUES (?, ?, ?, 0)`
-        ).bind(kudosId, feedItemId, athleteId),
-        c.env.DB.prepare(
-            `UPDATE feed_items
-             SET kudos_count = (SELECT COUNT(*) FROM kudos WHERE feed_item_id = ?)
-             WHERE id = ?`
-        ).bind(feedItemId, feedItemId),
-    ]);
+    const ins = await c.env.DB.prepare(
+        `INSERT OR IGNORE INTO kudos (id, feed_item_id, athlete_id, amount_sweat)
+         VALUES (?, ?, ?, 0)`
+    ).bind(kudosId, feedItemId, athleteId).run();
+    // Only bump the denormalised counter when the insert actually
+    // added a row. Double-tap / replay does nothing.
+    if ((ins.meta.changes ?? 0) > 0) {
+        await c.env.DB.prepare(
+            `UPDATE feed_items SET kudos_count = kudos_count + 1 WHERE id = ?`
+        ).bind(feedItemId).run();
+    }
     c.executionCtx.waitUntil(notifyKudos(c.env, feedItemId, athleteId));
     return c.json({ ok: true });
 });
@@ -157,15 +208,18 @@ social.post("/feed/:id/kudos", async (c) => {
 social.delete("/feed/:id/kudos", async (c) => {
     const athleteId = requireAthlete(c);
     const feedItemId = c.req.param("id");
-    await c.env.DB.batch([
-        c.env.DB.prepare(`DELETE FROM kudos WHERE feed_item_id = ? AND athlete_id = ?`)
-            .bind(feedItemId, athleteId),
-        c.env.DB.prepare(
+    const del = await c.env.DB.prepare(
+        `DELETE FROM kudos WHERE feed_item_id = ? AND athlete_id = ?`
+    ).bind(feedItemId, athleteId).run();
+    if ((del.meta.changes ?? 0) > 0) {
+        // Clamp at 0 so a counter that drifted historically can't go
+        // negative after a decrement.
+        await c.env.DB.prepare(
             `UPDATE feed_items
-             SET kudos_count = (SELECT COUNT(*) FROM kudos WHERE feed_item_id = ?)
+             SET kudos_count = MAX(0, kudos_count - 1)
              WHERE id = ?`
-        ).bind(feedItemId, feedItemId),
-    ]);
+        ).bind(feedItemId).run();
+    }
     return c.json({ ok: true });
 });
 
@@ -177,6 +231,8 @@ social.post("/feed/:id/tip", async (c) => {
     const feedItemId = c.req.param("id");
     const { amount } = await parseBody(c, TipSchema);
     const tipId = crypto.randomUUID();
+    // Incremental bump on tipped_sweat — the INSERT always succeeds
+    // (tips are append-only, no uniqueness), so we always increment.
     await c.env.DB.batch([
         c.env.DB.prepare(
             `INSERT INTO tips (id, feed_item_id, athlete_id, amount_sweat)
@@ -184,9 +240,9 @@ social.post("/feed/:id/tip", async (c) => {
         ).bind(tipId, feedItemId, athleteId, amount),
         c.env.DB.prepare(
             `UPDATE feed_items
-             SET tipped_sweat = (SELECT COALESCE(SUM(amount_sweat), 0) FROM tips WHERE feed_item_id = ?)
+             SET tipped_sweat = tipped_sweat + ?
              WHERE id = ?`
-        ).bind(feedItemId, feedItemId),
+        ).bind(amount, feedItemId),
     ]);
     c.executionCtx.waitUntil(notifyTip(c.env, feedItemId, athleteId, amount));
     return c.json({ ok: true });
@@ -210,6 +266,44 @@ social.post("/feed/:id/comments", async (c) => {
     return c.json({ id: cid });
 });
 
+// Delete a comment. Allowed when the caller is either the comment
+// author OR the owner of the feed item (mods get their own admin
+// endpoint in admin.ts). Decrements comment_count only if the row
+// actually existed.
+social.delete("/feed/:id/comments/:commentId", async (c) => {
+    const me = requireAthlete(c);
+    const feedItemId = c.req.param("id");
+    const commentId = c.req.param("commentId");
+
+    // Authorise: either author of the comment OR owner of the feed
+    // item may delete. Two-step check is cheaper than a SQL JOIN
+    // under the happy path (author deletes own comment, single lookup).
+    const row = await c.env.DB.prepare(
+        `SELECT c.athlete_id AS author_id, fi.athlete_id AS owner_id
+         FROM comments c
+         JOIN feed_items fi ON fi.id = c.feed_item_id
+         WHERE c.id = ? AND c.feed_item_id = ?`
+    ).bind(commentId, feedItemId).first<{
+        author_id: string; owner_id: string;
+    }>();
+    if (!row) return c.json({ error: "not_found" }, 404);
+    if (row.author_id !== me && row.owner_id !== me) {
+        return c.json({ error: "forbidden" }, 403);
+    }
+
+    const del = await c.env.DB.prepare(
+        `DELETE FROM comments WHERE id = ? AND feed_item_id = ?`
+    ).bind(commentId, feedItemId).run();
+    if ((del.meta.changes ?? 0) > 0) {
+        await c.env.DB.prepare(
+            `UPDATE feed_items
+             SET comment_count = MAX(0, comment_count - 1)
+             WHERE id = ?`
+        ).bind(feedItemId).run();
+    }
+    return c.json({ ok: true });
+});
+
 social.get("/feed/:id/comments", async (c) => {
     const feedItemId = c.req.param("id");
     const rows = await c.env.DB.prepare(
@@ -231,18 +325,31 @@ social.get("/feed/:id/comments", async (c) => {
 
 // ---------- Follows / mutes / reports ----------
 
+// Follow. Use D1 meta.changes on the INSERT to gate the counter
+// bump — the NOT EXISTS / time-window guard that was here before was
+// racy (two concurrent follows inside 1s would both see "no row",
+// insert once, and bump twice). With INSERT OR IGNORE + changes()
+// the DB itself guarantees at most one bump per (follower, followee)
+// pair for the lifetime of that row.
 social.post("/follow/:id", async (c) => {
     const me = requireAthlete(c);
     const target = await resolveInternalId(c.env, c.req.param("id"));
     if (!target) return c.json({ error: "not_found" }, 404);
     if (me === target) return c.json({ error: "self" }, 400);
-    await c.env.DB.batch([
-        c.env.DB.prepare(`INSERT OR IGNORE INTO follows (follower_id, followee_id) VALUES (?, ?)`)
-            .bind(me, target),
-        c.env.DB.prepare(`UPDATE athletes SET followers_count = followers_count + 1 WHERE id = ?
-                          AND NOT EXISTS (SELECT 1 FROM follows WHERE follower_id = ? AND followee_id = ? AND created_at < unixepoch() - 1)`)
-            .bind(target, me, target),
-    ]);
+
+    const ins = await c.env.DB.prepare(
+        `INSERT OR IGNORE INTO follows (follower_id, followee_id) VALUES (?, ?)`
+    ).bind(me, target).run();
+    if ((ins.meta.changes ?? 0) > 0) {
+        await c.env.DB.batch([
+            c.env.DB.prepare(
+                `UPDATE athletes SET followers_count = followers_count + 1 WHERE id = ?`
+            ).bind(target),
+            c.env.DB.prepare(
+                `UPDATE athletes SET following_count = following_count + 1 WHERE id = ?`
+            ).bind(me),
+        ]);
+    }
     return c.json({ ok: true });
 });
 
@@ -250,8 +357,22 @@ social.delete("/follow/:id", async (c) => {
     const me = requireAthlete(c);
     const target = await resolveInternalId(c.env, c.req.param("id"));
     if (!target) return c.json({ error: "not_found" }, 404);
-    await c.env.DB.prepare(`DELETE FROM follows WHERE follower_id = ? AND followee_id = ?`)
-        .bind(me, target).run();
+    // DELETE returns changes=0 when the row wasn't there (idempotent
+    // unfollow). Only decrement when we actually removed something so
+    // we don't underflow the counters.
+    const del = await c.env.DB.prepare(
+        `DELETE FROM follows WHERE follower_id = ? AND followee_id = ?`
+    ).bind(me, target).run();
+    if ((del.meta.changes ?? 0) > 0) {
+        await c.env.DB.batch([
+            c.env.DB.prepare(
+                `UPDATE athletes SET followers_count = MAX(0, followers_count - 1) WHERE id = ?`
+            ).bind(target),
+            c.env.DB.prepare(
+                `UPDATE athletes SET following_count = MAX(0, following_count - 1) WHERE id = ?`
+            ).bind(me),
+        ]);
+    }
     return c.json({ ok: true });
 });
 
@@ -260,6 +381,17 @@ social.post("/mute/:id", async (c) => {
     const target = await resolveInternalId(c.env, c.req.param("id"));
     if (!target) return c.json({ error: "not_found" }, 404);
     await c.env.DB.prepare(`INSERT OR IGNORE INTO mutes (muter_id, muted_id) VALUES (?, ?)`)
+        .bind(me, target).run();
+    return c.json({ ok: true });
+});
+
+// Inverse of POST /mute/:id — letting the user unmute somebody. We
+// always return 200 even when the row didn't exist (idempotent).
+social.delete("/mute/:id", async (c) => {
+    const me = requireAthlete(c);
+    const target = await resolveInternalId(c.env, c.req.param("id"));
+    if (!target) return c.json({ error: "not_found" }, 404);
+    await c.env.DB.prepare(`DELETE FROM mutes WHERE muter_id = ? AND muted_id = ?`)
         .bind(me, target).run();
     return c.json({ ok: true });
 });
@@ -323,29 +455,28 @@ social.post("/clubs", async (c) => {
 social.post("/clubs/:id/membership", async (c) => {
     const me = requireAthlete(c);
     const clubId = c.req.param("id");
-    await c.env.DB.batch([
-        c.env.DB.prepare(
-            `INSERT OR IGNORE INTO club_members (club_id, athlete_id, role) VALUES (?, ?, 'member')`
-        ).bind(clubId, me),
-        c.env.DB.prepare(
-            `UPDATE clubs SET member_count = (SELECT COUNT(*) FROM club_members WHERE club_id = ?)
-             WHERE id = ?`
-        ).bind(clubId, clubId),
-    ]);
+    const ins = await c.env.DB.prepare(
+        `INSERT OR IGNORE INTO club_members (club_id, athlete_id, role) VALUES (?, ?, 'member')`
+    ).bind(clubId, me).run();
+    if ((ins.meta.changes ?? 0) > 0) {
+        await c.env.DB.prepare(
+            `UPDATE clubs SET member_count = member_count + 1 WHERE id = ?`
+        ).bind(clubId).run();
+    }
     return c.json({ ok: true });
 });
 
 social.delete("/clubs/:id/membership", async (c) => {
     const me = requireAthlete(c);
     const clubId = c.req.param("id");
-    await c.env.DB.batch([
-        c.env.DB.prepare(`DELETE FROM club_members WHERE club_id = ? AND athlete_id = ?`)
-            .bind(clubId, me),
-        c.env.DB.prepare(
-            `UPDATE clubs SET member_count = (SELECT COUNT(*) FROM club_members WHERE club_id = ?)
-             WHERE id = ?`
-        ).bind(clubId, clubId),
-    ]);
+    const del = await c.env.DB.prepare(
+        `DELETE FROM club_members WHERE club_id = ? AND athlete_id = ?`
+    ).bind(clubId, me).run();
+    if ((del.meta.changes ?? 0) > 0) {
+        await c.env.DB.prepare(
+            `UPDATE clubs SET member_count = MAX(0, member_count - 1) WHERE id = ?`
+        ).bind(clubId).run();
+    }
     return c.json({ ok: true });
 });
 
@@ -361,32 +492,29 @@ social.get("/challenges", async (c) => {
 social.post("/challenges/:id/join", async (c) => {
     const me = requireAthlete(c);
     const cid = c.req.param("id");
-    await c.env.DB.batch([
-        c.env.DB.prepare(
-            `INSERT OR IGNORE INTO challenge_participants (challenge_id, athlete_id, progress)
-             VALUES (?, ?, 0)`
-        ).bind(cid, me),
-        c.env.DB.prepare(
-            `UPDATE challenges
-             SET participants = (SELECT COUNT(*) FROM challenge_participants WHERE challenge_id = ?)
-             WHERE id = ?`
-        ).bind(cid, cid),
-    ]);
+    const ins = await c.env.DB.prepare(
+        `INSERT OR IGNORE INTO challenge_participants (challenge_id, athlete_id, progress)
+         VALUES (?, ?, 0)`
+    ).bind(cid, me).run();
+    if ((ins.meta.changes ?? 0) > 0) {
+        await c.env.DB.prepare(
+            `UPDATE challenges SET participants = participants + 1 WHERE id = ?`
+        ).bind(cid).run();
+    }
     return c.json({ ok: true });
 });
 
 social.delete("/challenges/:id/join", async (c) => {
     const me = requireAthlete(c);
     const cid = c.req.param("id");
-    await c.env.DB.batch([
-        c.env.DB.prepare(`DELETE FROM challenge_participants WHERE challenge_id = ? AND athlete_id = ?`)
-            .bind(cid, me),
-        c.env.DB.prepare(
-            `UPDATE challenges
-             SET participants = (SELECT COUNT(*) FROM challenge_participants WHERE challenge_id = ?)
-             WHERE id = ?`
-        ).bind(cid, cid),
-    ]);
+    const del = await c.env.DB.prepare(
+        `DELETE FROM challenge_participants WHERE challenge_id = ? AND athlete_id = ?`
+    ).bind(cid, me).run();
+    if ((del.meta.changes ?? 0) > 0) {
+        await c.env.DB.prepare(
+            `UPDATE challenges SET participants = MAX(0, participants - 1) WHERE id = ?`
+        ).bind(cid).run();
+    }
     return c.json({ ok: true });
 });
 

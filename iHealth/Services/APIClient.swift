@@ -66,11 +66,17 @@ nonisolated final class APIClient: @unchecked Sendable {
     /// Returns one page of feed items + the cursor for the next page.
     /// Pass `before = nil` for the first page; pass the returned
     /// `nextBefore` to fetch older items. `nextBefore == nil` on the
-    /// response = end of feed.
+    /// response = end of feed. The cursor is an opaque string shaped
+    /// `"<ordering-key>:<feed-item-id>"` — the server uses the id as a
+    /// tiebreaker so concurrent inserts/deletes can't cause phantom
+    /// or duplicate items across pages.
     func fetchFeedPage(sort: String = "recent", limit: Int = 30,
-                       before: Double? = nil) async throws -> FeedEnvelope {
+                       before: String? = nil) async throws -> FeedEnvelope {
         var path = "/feed?sort=\(sort)&limit=\(limit)"
-        if let before { path += "&before=\(Int(before))" }
+        if let before, !before.isEmpty {
+            let encoded = before.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? before
+            path += "&before=\(encoded)"
+        }
         return try await get(path)
     }
 
@@ -98,6 +104,14 @@ nonisolated final class APIClient: @unchecked Sendable {
 
     func muteAthlete(id: String) async throws {
         _ = try await postVoid("/mute/\(id)", body: EmptyBody())
+    }
+
+    func unmute(athleteId: String) async throws {
+        _ = try await deleteVoid("/mute/\(athleteId)")
+    }
+
+    func deleteComment(feedItemId: String, commentId: String) async throws {
+        _ = try await deleteVoid("/feed/\(feedItemId)/comments/\(commentId)")
     }
 
     func report(feedItemId: String?, athleteId: String?, reason: String) async throws {
@@ -162,6 +176,10 @@ nonisolated final class APIClient: @unchecked Sendable {
 
     func submitWorkout(_ req: SubmitWorkoutRequest) async throws -> SubmitWorkoutResponse {
         try await post("/workouts", body: req)
+    }
+
+    func deleteWorkout(id: String) async throws {
+        _ = try await deleteVoid("/workouts/\(id)")
     }
 
     // MARK: - Auth diagnostics
@@ -348,7 +366,9 @@ nonisolated struct FeedItemDTO: Decodable, Hashable, Identifiable {
 }
 nonisolated struct FeedEnvelope: Decodable {
     let items: [FeedItemDTO]
-    let nextBefore: Double?
+    /// Opaque composite cursor `"<key>:<id>"`. Pass back as-is to
+    /// fetchFeedPage(before:) for the next page. `nil` = end of feed.
+    let nextBefore: String?
 }
 
 nonisolated struct ClubDTO: Decodable, Hashable, Identifiable {

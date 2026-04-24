@@ -21,6 +21,9 @@ struct FeedView: View {
             ScrollView {
                 VStack(spacing: Theme.Space.md) {
                     headerBar
+                    if social.lastRefreshError {
+                        offlineBanner
+                    }
                     pointsCard
                     streakCard
                     filterRow
@@ -100,6 +103,43 @@ struct FeedView: View {
                 .buttonStyle(.plain)
             }
         }
+    }
+
+    // MARK: - Offline / error banner
+
+    private var offlineBanner: some View {
+        HStack(spacing: 10) {
+            Image(systemName: social.isOffline ? "wifi.slash" : "exclamationmark.triangle.fill")
+                .font(.system(size: 15, weight: .bold))
+                .foregroundStyle(Theme.Color.hot)
+            Text("Couldn't refresh feed — check your connection.")
+                .font(.system(size: 13, weight: .medium, design: .rounded))
+                .foregroundStyle(Theme.Color.ink)
+                .lineLimit(2)
+            Spacer(minLength: 8)
+            Button {
+                Haptics.tap()
+                Task { await social.refresh() }
+            } label: {
+                Text("Retry")
+                    .font(.system(size: 13, weight: .bold, design: .rounded))
+                    .foregroundStyle(Theme.Color.inkInverse)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .background(Capsule().fill(Theme.Color.ink))
+            }
+            .buttonStyle(.plain)
+            .disabled(social.isRefreshing)
+        }
+        .padding(12)
+        .background(
+            RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous)
+                .fill(Theme.Color.hot.opacity(0.12))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous)
+                .strokeBorder(Theme.Color.hot.opacity(0.3), lineWidth: 1)
+        )
     }
 
     // MARK: - Points card
@@ -599,14 +639,38 @@ struct FeedCard: View {
         }
         .buttonStyle(.plain)
         .sheet(isPresented: $showShare) {
-            ShareSheet(items: [shareText])
+            ShareSheet(items: [shareText, shareURL])
         }
     }
 
+    /// Short workout description for the share sheet — "<name> ran 5.2 km
+    /// in 32 min on SuiSport" for movement activities, falls back to the
+    /// feed title for sports that don't have a distance (lift, yoga…).
     private var shareText: String {
         let who = item.athlete.displayName
-        let what = item.title
-        return "\(who) just hit \(what) on SuiSport. Verified on-chain. suisport.app"
+        let verb: String
+        switch item.workout.type {
+        case .run: verb = "ran"
+        case .ride: verb = "rode"
+        case .walk: verb = "walked"
+        case .hike: verb = "hiked"
+        case .swim: verb = "swam"
+        default: verb = "trained"
+        }
+        let time = formatDuration(item.workout.duration)
+        if let d = item.workout.distanceMeters, d > 0 {
+            let km = String(format: "%.1f", d / 1000)
+            return "\(who) \(verb) \(km) km in \(time) on SuiSport"
+        }
+        return "\(who) \(verb) for \(time) on SuiSport"
+    }
+
+    /// Deep link landing page. Backend may not have the /w/<id> route
+    /// yet — a server-side 404 is fine for now; the unfurl will still
+    /// carry the message copy.
+    private var shareURL: URL {
+        URL(string: "https://suisport.app/w/\(item.id.uuidString)")
+            ?? URL(string: "https://suisport.app")!
     }
 
     private var commentPeek: some View {

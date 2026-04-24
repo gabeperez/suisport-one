@@ -3,7 +3,7 @@
 What we've already shipped is in `FRIENDS_BETA.md`. Everything below is
 what still needs doing, grouped by who has to do it.
 
-**Last updated:** 2026-04-24 (post-moderation pass)
+**Last updated:** 2026-04-24 (post-§2-bulk-pass)
 
 ---
 
@@ -113,13 +113,13 @@ ASN.1/X.509 parsing; `@peculiar/x509` is a candidate. Until this lands,
 a determined attacker could forge an attestation object if they
 extracted the leaf cert — acceptable for beta, not for mainnet rewards.
 
-### 2.2 — Assertion verification required on mutating calls
-We only verify attestations on register. To close the loop, every
-mutating call should pass through `verifyAssertion()` in
-`cloudflare/src/appattest.ts` before accepting. Right now it's
-implemented but unused. Wire it as a middleware on `/v1/workouts`,
-`/v1/shoes`, `/v1/clubs` and expose the client-data-hash construction
-on the iOS side (Profile → Settings → enable verified workouts).
+### 2.2 — ~~Assertion verification middleware~~ ✅ SHIPPED
+`attestMiddleware` registered after rate-limit on every non-GET
+route. Default non-strict: requests without headers pass through so
+existing clients aren't broken. Flip `ATTEST_STRICT=true` as a
+wrangler secret to require valid headers on every mutating call.
+iOS still needs to **send** the headers (generate assertion via
+`DCAppAttestService.generateAssertion`); infrastructure is there.
 
 ### 2.3 — Walrus upload pipeline
 `POST /v1/workouts` returns `txDigest: pending_<id>`. To actually anchor
@@ -174,10 +174,14 @@ Currently club chat is absent. Adding:
 Enable in CF dashboard when latency-sensitive reads get busy
 (probably not until you have a few hundred MAU). Free on Workers Paid.
 
-### 2.9 — On-chain indexer
-Instead of writing our own Sui event subscriber, use Shinami or Mysten's
-hosted indexer. Hook into our D1 so feed cards can show the verified
-tx digest + mint count.
+### 2.9 — ~~Richer on-chain indexer~~ ✅ SHIPPED
+Indexer walks rewards_engine + workout_registry in parallel each
+tick, upserts sweat_points (so brand-new athletes get a row
+created on first mint), writes a health heartbeat to
+schema_meta.sui_indexer_health with timestamp + last-event-ts +
+error fields, and exposes the block via `/v1/sui/status.indexer`.
+*Future*: swap for Shinami or Mysten's hosted indexer when it
+supports the custom Move structs; our own works for the beta.
 
 ### 2.10 — ~~Moderation review queue~~ ✅ SHIPPED
 Migration 0007 added `reports.resolved_at / resolution_note /
@@ -188,20 +192,26 @@ resolved_by`. Admin endpoints: `GET /v1/admin/reports`,
 *Future polish*: Slack webhook on new reports, auto-escalation by
 reason count, shadow-ban (reports still accept, nobody sees).
 
-### 2.11 — Missing iOS UI refinements
-Known but not shipped:
-- App Icon (still the default Xcode template)
-- LaunchScreen.storyboard
+### 2.11 — iOS UI refinements (partial ✅)
+Shipped:
+- ~~Launch screen~~ — LaunchBackground color asset + Info.plist
+  wiring so the launch state reads as SuiSport (deep green / near-
+  black dark) instead of a white flash.
+- ~~iPad max-width readability~~ — Feed + Profile content clamped
+  to 640pt on wide devices.
+Still open:
+- App Icon (still Xcode template — needs a real 1024×1024 PNG)
 - App Store screenshots + metadata
-- Dark mode polish pass on the onboarding screens (we did it for core
-  surfaces but not onboarding)
-- iPad size class
+- Dark-mode audit pass on every onboarding screen (core surfaces OK)
 
-### 2.12 — Live workout recorder
-`iHealth/Features/Home/RecordSheet.swift` exists as a sheet but the
-actual recording surface is placeholder. Wire up `HKWorkoutSession` +
-`HKLiveWorkoutBuilder` (iOS 26 added these to iPhone, previously
-Watch-only). Design is mostly decided — start/pause/stop + metric row.
+### 2.12 — ~~Live workout recorder~~ ✅ SHIPPED
+LiveRecorderView drives `WorkoutRecorder`. Full-screen cover from
+RecordSheet; HK session lifecycle (prepare → running → paused →
+saving → finished); giant duration counter + 4 metric tiles
+(distance, pace, HR, kcal); pause/resume/end confirm → submit to
+`/v1/workouts` → refresh feed. **Needs real iPhone + Simulator to
+validate runtime behavior** — HealthKit APIs only exercise at
+build time.
 
 ---
 
@@ -258,3 +268,5 @@ Watch-only). Design is mostly decided — start/pause/stop + metric row.
 | Privacy + Terms templates | scope #2 | `legal/` |
 | This TODO | scope #2 | `TODO.md` |
 | Moderation queue + soft-ban + age gate + canonical-hash hardening | scope #3 | `cloudflare/migrations/0007_*`, `cloudflare/src/routes/admin.ts`, `iHealth/Features/Onboarding/AgeGateScreen.swift`, `cloudflare/src/fraud.ts` |
+| Feed cursor pagination | scope #3 | `cloudflare/src/routes/social.ts`, `iHealth/Services/SocialDataService.swift`, `iHealth/Features/Home/FeedView.swift` |
+| §2.12 Live workout recorder, §2.2 attest middleware, §2.11 launch bg + iPad clamp, §2.9 richer indexer + health | scope #4 | `iHealth/Features/Home/LiveRecorderView.swift`, `cloudflare/src/auth.ts`, `cloudflare/src/indexer.ts`, `iHealth/Assets.xcassets/LaunchBackground.colorset/` |

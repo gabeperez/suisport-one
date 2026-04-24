@@ -11,7 +11,6 @@ import { auth } from "./routes/auth.js";
 import { account } from "./routes/account.js";
 import { attestation } from "./routes/attestation.js";
 import { sui } from "./routes/sui.js";
-import { walletBridge } from "./routes/walletBridge.js";
 import { indexTick } from "./indexer.js";
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
@@ -24,10 +23,10 @@ app.use("*", cors({
 }));
 app.use("*", sessionMiddleware);
 
-// Wallet-connect HTML lives at the root (no /v1 prefix) so
-// ASWebAuthenticationSession can open a short URL like
-// https://suisport-api.../wallet-connect?challengeId=...
-app.route("/", walletBridge);
+// Wallet-connect UI moved to a dedicated Cloudflare Pages project
+// (cloudflare/wallet-bridge — Vite + React + @mysten/dapp-kit) so it
+// can render ConnectButton with full Wallet Standard discovery. The
+// Worker no longer serves wallet HTML inline.
 
 app.get("/", (c) => c.json({
     service: "suisport-api",

@@ -54,16 +54,9 @@ final class WalletConnectBridge {
         challenge: WalletChallengeResponse
     ) async throws -> SignedChallenge {
         let scheme = "suisport"
-        var comps = URLComponents(string:
-            "https://suisport-api.perez-jg22.workers.dev/wallet-connect")!
-        comps.queryItems = [
-            URLQueryItem(name: "challengeId", value: challenge.challengeId),
-            URLQueryItem(name: "nonce", value: challenge.nonce),
-            URLQueryItem(name: "returnScheme", value: scheme),
-        ]
         let callback: URL = try await withCheckedThrowingContinuation { cont in
             let session = ASWebAuthenticationSession(
-                url: comps.url!, callbackURLScheme: scheme
+                url: Self.bridgeURL(for: challenge), callbackURLScheme: scheme
             ) { url, err in
                 if let err {
                     cont.resume(throwing: err)
@@ -138,11 +131,13 @@ final class WalletConnectBridge {
     }
 
     /// Public URL of the hosted bridge page for a given challenge.
+    /// Served as a Cloudflare Pages static app (Vite + React +
+    /// @mysten/dapp-kit's ConnectButton + useSignPersonalMessage).
     /// Used both by the ASWebAuthenticationSession path AND the
     /// "Open in Safari" escape hatch on the paste-back sheet.
     static func bridgeURL(for challenge: WalletChallengeResponse) -> URL {
         var comps = URLComponents(string:
-            "https://suisport-api.perez-jg22.workers.dev/wallet-connect")!
+            "https://suisport-wallet.pages.dev/")!
         comps.queryItems = [
             URLQueryItem(name: "challengeId", value: challenge.challengeId),
             URLQueryItem(name: "nonce", value: challenge.nonce),

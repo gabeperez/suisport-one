@@ -1,0 +1,27 @@
+{
+  "name": "suisport-wallet-bridge",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "deploy": "npm run build && wrangler pages deploy dist --project-name=suisport-wallet --commit-dirty=true"
+  },
+  "dependencies": {
+    "@mysten/dapp-kit": "^0.17.0",
+    "@mysten/slush-wallet": "^1.0.3",
+    "@mysten/sui": "^2.16.0",
+    "@tanstack/react-query": "^5.60.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.3",
+    "vite": "^5.4.10",
+    "wrangler": "^4.77.0"
+  }
+}

@@ -25,6 +25,9 @@ node_modules/
 .dev.vars
 *.log
 
+# Vite build artifacts
+dist/
+
 # Logs / temp
 /tmp/
 tmp/

@@ -49,6 +49,59 @@ export async function adminGuard(
     await next();
 }
 
+/// Optional App Attest gate for mutating routes.
+///
+/// Clients pass three headers when they have a registered attestation
+/// key:
+///   X-AppAttest-Key-Id        base64url key id the client holds
+///   X-AppAttest-Assertion     base64 CBOR assertion from
+///                             DCAppAttestService.generateAssertion
+///   X-AppAttest-ClientData    base64 clientDataHash the assertion covers
+///
+/// Behavior:
+///   - Missing headers + ATTEST_STRICT=true  →  401 "attest_required"
+///   - Missing headers + strict off           →  pass-through (beta)
+///   - Present but invalid                    →  401 "attest_invalid"
+///   - Present + valid                        →  pass-through; counter
+///                                               bumped by verifyAssertion
+export async function attestMiddleware(
+    c: Context<{ Bindings: Env; Variables: Variables }>,
+    next: Next
+) {
+    const keyId = c.req.header("X-AppAttest-Key-Id");
+    const assertion = c.req.header("X-AppAttest-Assertion");
+    const clientData = c.req.header("X-AppAttest-ClientData");
+    const strict = c.env.ATTEST_STRICT === "true";
+
+    if (!keyId || !assertion || !clientData) {
+        if (strict) return c.json({ error: "attest_required" }, 401);
+        return next();
+    }
+
+    // Import lazily to avoid paying the CBOR parse cost for the strict=false
+    // pass-through path on every request.
+    try {
+        const { verifyAssertion } = await import("./appattest.js");
+        const padded = clientData.replace(/-/g, "+").replace(/_/g, "/");
+        const clientDataBytes = Uint8Array.from(
+            atob(padded + "=".repeat((4 - (padded.length % 4)) % 4)),
+            (ch) => ch.charCodeAt(0)
+        );
+        const res = await verifyAssertion(
+            c.env, keyId, assertion, clientDataBytes.buffer as ArrayBuffer
+        );
+        if (!res.ok) {
+            return c.json({ error: "attest_invalid", reason: res.reason }, 401);
+        }
+    } catch (err) {
+        return c.json({
+            error: "attest_invalid",
+            reason: err instanceof Error ? err.message : "unknown",
+        }, 401);
+    }
+    await next();
+}
+
 /// Rate-limit middleware. Keys on the session athlete when present,
 /// otherwise on the request IP. Returns 429 when the caller exceeds the
 /// window defined in wrangler.toml (60 req/min today).

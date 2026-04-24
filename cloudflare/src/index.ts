@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import type { Env, Variables } from "./env.js";
-import { sessionMiddleware, rateLimit } from "./auth.js";
+import { sessionMiddleware, rateLimit, attestMiddleware } from "./auth.js";
 import { ValidationError } from "./validation.js";
 import { social } from "./routes/social.js";
 import { workouts } from "./routes/workouts.js";
@@ -51,11 +51,23 @@ app.get("/health", async (c) => {
 const v1 = new Hono<{ Bindings: Env; Variables: Variables }>();
 // Rate-limit every mutating method. GET / HEAD / OPTIONS pass through
 // so feed browsing stays snappy even under noisy clients.
+// Rate-limit mutating routes. Registered before attestation so a flood
+// of bogus attestation headers still gets dropped by the rate limiter
+// before we spend cycles CBOR-decoding.
 v1.use("*", async (c, next) => {
     if (c.req.method === "GET" || c.req.method === "HEAD" || c.req.method === "OPTIONS") {
         return next();
     }
     return rateLimit(c, next);
+});
+// Attestation gate after rate limiting. Hono runs each use() as its
+// own middleware layer with its own next() call — keeping them
+// separate means a 401 from either short-circuits cleanly.
+v1.use("*", async (c, next) => {
+    if (c.req.method === "GET" || c.req.method === "HEAD" || c.req.method === "OPTIONS") {
+        return next();
+    }
+    return attestMiddleware(c, next);
 });
 v1.route("/", auth);
 v1.route("/", account);

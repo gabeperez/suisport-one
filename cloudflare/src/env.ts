@@ -10,6 +10,10 @@ export type Env = {
     // Optional — when present, /v1/attestation/register enforces real
     // App Attest verification; otherwise it accepts but flags.
     APPATTEST_APP_ID?: string;
+    // "true" → mutating routes require a valid App Attest assertion.
+    // Anything else (default) → accept requests without assertion
+    // headers so existing clients continue working through the beta.
+    ATTEST_STRICT?: string;
     // ---- Sui / Walrus (all optional; pipeline falls back to stubs) ----
     SUI_NETWORK?: string;                // "testnet" | "mainnet" | RPC URL
     SUI_PACKAGE_ID?: string;             // 0x... after `sui client publish`

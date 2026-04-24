@@ -121,6 +121,52 @@ auth.post("/auth/signout", async (c) => {
     return c.json({ ok: true });
 });
 
+// Diagnostic: returns what the server thinks the current session is.
+// Lets the iOS app's debug panel distinguish "Enoki ran + returned a
+// real zkLogin address" from "Enoki was skipped/failed + we're on the
+// deterministic mock" without requiring end-to-end instrumentation.
+auth.get("/auth/whoami", async (c) => {
+    const id = c.get("athleteId");
+    if (!id) {
+        return c.json({
+            authenticated: false,
+            enokiConfigured: hasEnokiKey(c.env),
+        });
+    }
+    const row = await c.env.DB.prepare(
+        `SELECT a.id, a.user_id, a.handle, a.display_name, a.suins_name,
+                u.provider, u.created_at
+         FROM athletes a
+         LEFT JOIN users u ON u.sui_address = a.id
+         WHERE a.id = ? LIMIT 1`
+    ).bind(id).first<{
+        id: string; user_id: string; handle: string;
+        display_name: string; suins_name: string | null;
+        provider: string | null; created_at: number | null;
+    }>();
+    if (!row) return c.json({ authenticated: false }, 404);
+
+    // An address shape of 66 hex chars (0x + 64 nibbles) means it's a
+    // full-width Sui address — either a real zkLogin result or a
+    // matching-shape mock. 42 chars = truncated mock from before we
+    // fixed the pre-Enoki fallback.
+    const looksLikeFullSuiAddress = /^0x[a-fA-F0-9]{64}$/.test(row.id);
+
+    return c.json({
+        authenticated: true,
+        enokiConfigured: hasEnokiKey(c.env),
+        userId: row.user_id,
+        suiAddress: row.id,
+        addressShape: looksLikeFullSuiAddress ? "sui_valid" : "mock_truncated",
+        handle: row.handle,
+        displayName: row.display_name,
+        suinsName: row.suins_name,
+        suinsPresentOnThisNetwork: row.suins_name != null,
+        provider: row.provider,
+        firstSeenAt: row.created_at,
+    });
+});
+
 async function deterministicAddr(seed: string): Promise<string> {
     const data = new TextEncoder().encode(seed);
     const hash = await crypto.subtle.digest("SHA-256", data);

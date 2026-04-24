@@ -63,6 +63,7 @@ struct AuthScreen: View {
                 appleSignInButton
                 googleSignInButton
                 walletSignInButton
+                otherWalletLink
 
                 Button {
                     Haptics.tap()
@@ -144,6 +145,25 @@ struct AuthScreen: View {
                     radius: 14, y: 6)
         }
         .buttonStyle(.plain)
+    }
+
+    /// Secondary escape hatch for users who already have a non-Slush
+    /// Sui wallet (Suiet, Nightly, etc.) they'd rather sign with.
+    /// Opens the bridge page directly in Safari instead of routing
+    /// through `my.slush.app/browse/…`; dapp-kit's ConnectButton then
+    /// enumerates whatever Wallet-Standard wallets the browser has.
+    private var otherWalletLink: some View {
+        Button {
+            Haptics.tap()
+            Task { await app.signInWithWallet(useOtherWallet: true) }
+        } label: {
+            Text("Use another Sui wallet")
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(Theme.Color.inkFaint)
+                .underline()
+        }
+        .buttonStyle(.plain)
+        .padding(.top, 2)
     }
 
     private var inFlightButton: some View {

@@ -43,10 +43,20 @@ final class WalletConnectBridge {
         let fallbackTimer: Task<Void, Never>?
     }
 
-    /// Kicks off the full flow: challenge → Slush universal link →
-    /// waits for the suisport:// callback. Throws `Cancelled` if the
-    /// user backs out OR if we hit the fallback timeout.
-    func collectSignedChallenge() async throws -> SignedChallenge {
+    /// Kicks off the full flow: challenge → deep link → waits for the
+    /// `suisport://` callback. Throws `Cancelled` if the user backs out
+    /// OR if we hit the fallback timeout.
+    ///
+    /// `useOtherWallet = false` (default) routes through Slush's
+    /// `my.slush.app/browse/<url>` universal link — the best UX if
+    /// the user has (or is willing to use) Slush.
+    ///
+    /// `useOtherWallet = true` opens our bridge URL directly in Safari,
+    /// where dapp-kit's `ConnectButton` enumerates whatever Sui wallets
+    /// the browser has registered (Suiet, Nightly, etc. via Wallet
+    /// Standard). Use this when the user has an existing non-Slush
+    /// wallet they'd rather sign with.
+    func collectSignedChallenge(useOtherWallet: Bool = false) async throws -> SignedChallenge {
         // If a previous sign-in is mid-flight, cancel it so we don't
         // leak the continuation.
         pending?.continuation.resume(throwing: Cancelled())
@@ -57,7 +67,7 @@ final class WalletConnectBridge {
 
         return try await withCheckedThrowingContinuation { cont in
             // 2-minute timeout so the user doesn't stare at a spinner
-            // forever if they never return from Slush.
+            // forever if they never return from the wallet.
             let timer = Task { [weak self] in
                 try? await Task.sleep(nanoseconds: 120_000_000_000)
                 await self?.timeout(challengeId: challenge.challengeId)
@@ -67,11 +77,13 @@ final class WalletConnectBridge {
                 continuation: cont,
                 fallbackTimer: timer
             )
-            let deepLink = Self.slushUniversalLink(for: challenge)
+            let deepLink = useOtherWallet
+                ? Self.bridgeURL(for: challenge)
+                : Self.slushUniversalLink(for: challenge)
             UIApplication.shared.open(deepLink, options: [:]) { [weak self] ok in
                 if !ok {
-                    // Slush universal link failed to open (extremely
-                    // rare — my.slush.app always falls back to web).
+                    // The link failed to open (extremely rare — both
+                    // https targets always resolve).
                     Task { @MainActor in
                         self?.resolve(
                             challengeId: challenge.challengeId,

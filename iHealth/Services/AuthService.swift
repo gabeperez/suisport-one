@@ -49,8 +49,10 @@ final class AuthService: NSObject {
     /// backend-side verify + challenge exist; this client stub
     /// surfaces a paste-based flow via WalletConnectBridge so the
     /// actual wallet app's deep-link protocol is decoupled.
-    func signInWithWallet() async throws -> User {
-        let signed = try await WalletConnectBridge.shared.collectSignedChallenge()
+    func signInWithWallet(useOtherWallet: Bool = false) async throws -> User {
+        let signed = try await WalletConnectBridge.shared.collectSignedChallenge(
+            useOtherWallet: useOtherWallet
+        )
         let resp = try await APIClient.shared.walletVerify(
             challengeId: signed.challengeId,
             address: signed.address,

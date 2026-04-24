@@ -67,11 +67,13 @@ final class AppState {
         }
     }
 
-    func signInWithWallet() async {
+    func signInWithWallet(useOtherWallet: Bool = false) async {
         isAuthInFlight = true
         defer { isAuthInFlight = false }
         do {
-            let user = try await AuthService.shared.signInWithWallet()
+            let user = try await AuthService.shared.signInWithWallet(
+                useOtherWallet: useOtherWallet
+            )
             self.currentUser = user
             UserDefaults.standard.set("wallet", forKey: "lastAuthProvider")
             advanceOnboarding()

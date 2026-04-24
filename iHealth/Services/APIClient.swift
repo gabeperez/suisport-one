@@ -63,8 +63,21 @@ nonisolated final class APIClient: @unchecked Sendable {
 
     // MARK: - Feed
 
+    /// Returns one page of feed items + the cursor for the next page.
+    /// Pass `before = nil` for the first page; pass the returned
+    /// `nextBefore` to fetch older items. `nextBefore == nil` on the
+    /// response = end of feed.
+    func fetchFeedPage(sort: String = "recent", limit: Int = 30,
+                       before: Double? = nil) async throws -> FeedEnvelope {
+        var path = "/feed?sort=\(sort)&limit=\(limit)"
+        if let before { path += "&before=\(Int(before))" }
+        return try await get(path)
+    }
+
+    /// Legacy single-page fetch used by the initial refresh path.
+    /// Prefer fetchFeedPage() for anything that needs pagination.
     func fetchFeed(sort: String = "recent", limit: Int = 50) async throws -> [FeedItemDTO] {
-        (try await get("/feed?sort=\(sort)&limit=\(limit)") as FeedEnvelope).items
+        try await fetchFeedPage(sort: sort, limit: limit).items
     }
 
     func toggleKudos(feedItemId: String, tip: Int, liked: Bool) async throws {
@@ -315,7 +328,10 @@ nonisolated struct FeedItemDTO: Decodable, Hashable, Identifiable {
     let isDemo: Bool
     let createdAt: TimeInterval
 }
-nonisolated struct FeedEnvelope: Decodable { let items: [FeedItemDTO] }
+nonisolated struct FeedEnvelope: Decodable {
+    let items: [FeedItemDTO]
+    let nextBefore: Double?
+}
 
 nonisolated struct ClubDTO: Decodable, Hashable, Identifiable {
     let id: String

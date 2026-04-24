@@ -70,17 +70,29 @@ social.patch("/me", async (c) => {
 
 social.get("/feed", async (c) => {
     const sort = c.req.query("sort") ?? "recent";
-    const limit = Math.min(parseInt(c.req.query("limit") ?? "50", 10), 200);
+    const limit = Math.min(parseInt(c.req.query("limit") ?? "30", 10), 100);
+    // Cursor = `before` in unix seconds. When present, we only return
+    // items whose ordering key is strictly less than it — keyset
+    // pagination, so the server never needs to count-skip.
+    const before = c.req.query("before");
+    const beforeN = before ? parseInt(before, 10) : null;
+
     const order = sort === "kudos"
         ? "fi.kudos_count DESC, fi.created_at DESC"
         : "w.start_date DESC";
-    const rows = await c.env.DB.prepare(
-        `SELECT fi.*, a.id AS _a_id, w.id AS _w_id FROM feed_items fi
-         JOIN athletes a ON a.id = fi.athlete_id
-         JOIN workouts w ON w.id = fi.workout_id
-         WHERE a.suspended_at IS NULL
-         ORDER BY ${order} LIMIT ?`
-    ).bind(limit).all<FeedItemRow & { _a_id: string; _w_id: string }>();
+    const cursorClause = beforeN != null
+        ? (sort === "kudos" ? "AND fi.created_at < ?" : "AND w.start_date < ?")
+        : "";
+
+    const sql = `SELECT fi.*, a.id AS _a_id, w.id AS _w_id FROM feed_items fi
+                 JOIN athletes a ON a.id = fi.athlete_id
+                 JOIN workouts w ON w.id = fi.workout_id
+                 WHERE a.suspended_at IS NULL ${cursorClause}
+                 ORDER BY ${order} LIMIT ?`;
+    const stmt = beforeN != null
+        ? c.env.DB.prepare(sql).bind(beforeN, limit)
+        : c.env.DB.prepare(sql).bind(limit);
+    const rows = await stmt.all<FeedItemRow & { _a_id: string; _w_id: string }>();
 
     // Batch-fetch athletes + workouts referenced in the feed slice.
     const aIds = [...new Set(rows.results.map((r) => r.athlete_id))];
@@ -105,7 +117,15 @@ social.get("/feed", async (c) => {
             return a && w ? feedItemDTO(r, a, w) : null;
         })
         .filter(Boolean);
-    return c.json({ items });
+    // Next cursor = ordering key of the last item, or null when the
+    // page was short (no more pages).
+    let nextBefore: number | null = null;
+    if (rows.results.length === limit) {
+        const last = rows.results[rows.results.length - 1];
+        const lastW = wById.get(last.workout_id);
+        nextBefore = sort === "kudos" ? last.created_at : (lastW?.start_date ?? null);
+    }
+    return c.json({ items, nextBefore });
 });
 
 // ---------- Kudos + comments ----------

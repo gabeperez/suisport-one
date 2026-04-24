@@ -75,6 +75,14 @@ final class SocialDataService {
     var lastRefreshedAt: Date?
     var isRefreshing: Bool = false
 
+    /// Cursor for the next page of feed items. `nil` after a refresh
+    /// = more pages. `nil` after a loadMore that returned zero new
+    /// items = end of feed. Private to this service; views trigger
+    /// loadMoreFeed() and observe feed.count growing.
+    private var feedNextBefore: Double?
+    private var isLoadingMore = false
+    var hasMoreFeed: Bool { feedNextBefore != nil }
+
     // Maps stable UUIDs (derived from backend IDs) back to the original
     // backend string IDs so mutations can address the server.
     private var feedItemApiIds: [UUID: String] = [:]
@@ -90,7 +98,7 @@ final class SocialDataService {
         isRefreshing = true
         defer { isRefreshing = false }
 
-        async let feedResult: [FeedItemDTO]? = try? APIClient.shared.fetchFeed(sort: "recent", limit: 50)
+        async let feedResult: FeedEnvelope? = try? APIClient.shared.fetchFeedPage(sort: "recent", limit: 30)
         async let clubsResult: [ClubDTO]? = try? APIClient.shared.fetchClubs(filter: "all")
         async let meResult: AthleteDTO? = try? APIClient.shared.fetchMe()
         async let shoesResult: [ShoeDTO]? = try? APIClient.shared.fetchShoes(athleteId: "0xdemo_me")
@@ -99,14 +107,15 @@ final class SocialDataService {
         let (fetchedFeed, fetchedClubs, fetchedMe, fetchedShoes, fetchedPRs) =
             await (feedResult, clubsResult, meResult, shoesResult, prsResult)
 
-        if let dtos = fetchedFeed, !dtos.isEmpty {
-            let items = dtos.map(FeedItem.init(dto:))
+        if let env = fetchedFeed, !env.items.isEmpty {
+            let items = env.items.map(FeedItem.init(dto:))
             feed = items
             feedItemApiIds = Dictionary(uniqueKeysWithValues:
-                zip(items.map(\.id), dtos.map(\.id)))
+                zip(items.map(\.id), env.items.map(\.id)))
+            feedNextBefore = env.nextBefore
             // Harvest athletes from feed so profile taps resolve.
             let seen = Set(athletes.map(\.id))
-            let newAthletes = dtos.map { Athlete(dto: $0.athlete) }
+            let newAthletes = env.items.map { Athlete(dto: $0.athlete) }
                 .filter { !seen.contains($0.id) }
             athletes.append(contentsOf: newAthletes)
         }
@@ -130,6 +139,36 @@ final class SocialDataService {
         }
 
         lastRefreshedAt = .now
+    }
+
+    /// Appends the next page of feed items if there's a cursor + we're
+    /// not already fetching. No-op when we've reached the end.
+    /// Silent-on-error: cursor keeps pointing at the same page so the
+    /// next trigger retries.
+    func loadMoreFeed() async {
+        guard !isLoadingMore, let before = feedNextBefore else { return }
+        isLoadingMore = true
+        defer { isLoadingMore = false }
+
+        guard let env = try? await APIClient.shared.fetchFeedPage(
+            sort: "recent", limit: 30, before: before
+        ), !env.items.isEmpty else {
+            feedNextBefore = nil
+            return
+        }
+        let newItems = env.items.map(FeedItem.init(dto:))
+        let existingIds = Set(feed.map(\.id))
+        let fresh = zip(newItems, env.items).filter { !existingIds.contains($0.0.id) }
+        feed.append(contentsOf: fresh.map(\.0))
+        for (m, dto) in fresh {
+            feedItemApiIds[m.id] = dto.id
+        }
+        // Harvest athletes from the new page too.
+        let seen = Set(athletes.map(\.id))
+        let newAthletes = env.items.map { Athlete(dto: $0.athlete) }
+            .filter { !seen.contains($0.id) }
+        athletes.append(contentsOf: newAthletes)
+        feedNextBefore = env.nextBefore
     }
 
     // MARK: - Actions (mutate local state, optimistic)

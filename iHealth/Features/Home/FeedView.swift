@@ -242,7 +242,8 @@ struct FeedView: View {
         if social.feed.isEmpty {
             emptyState
         } else {
-            ForEach(filteredFeed) { item in
+            let items = filteredFeed
+            ForEach(Array(items.enumerated()), id: \.element.id) { idx, item in
                 FeedCard(
                     item: item,
                     onTap: { selectedItem = item },
@@ -256,6 +257,23 @@ struct FeedView: View {
                     },
                     onReport: { reportingItem = item }
                 )
+                // When the 3rd-from-last card appears, kick off a page
+                // fetch so scrolling never hits an empty state.
+                .onAppear {
+                    if idx >= items.count - 3, social.hasMoreFeed {
+                        Task { await social.loadMoreFeed() }
+                    }
+                }
+            }
+            if social.hasMoreFeed {
+                HStack(spacing: 8) {
+                    ProgressView().scaleEffect(0.8)
+                    Text("Loading more…")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(Theme.Color.inkFaint)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 16)
             }
         }
     }

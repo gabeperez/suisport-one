@@ -188,6 +188,20 @@ nonisolated final class APIClient: @unchecked Sendable {
         try await get("/workouts/\(workoutId)/onchain")
     }
 
+    // MARK: - Rewards
+
+    func fetchRewardsCatalog() async throws -> [RewardCatalogItemDTO] {
+        (try await get("/rewards/catalog") as RewardsCatalogEnvelope).items
+    }
+
+    func redeemReward(catalogId: String) async throws -> RedemptionResponse {
+        try await post("/rewards/redeem", body: ["catalogId": catalogId])
+    }
+
+    func fetchRewardsHistory() async throws -> [RedemptionHistoryItemDTO] {
+        (try await get("/rewards/history") as RewardsHistoryEnvelope).items
+    }
+
     // MARK: - Health
 
     func health() async throws -> HealthResponse { try await get("/../health") }
@@ -587,3 +601,34 @@ nonisolated struct SubmitWorkoutResponse: Decodable {
     let pointsMinted: Int
     let txDigest: String
 }
+
+// MARK: - Rewards DTOs
+
+nonisolated struct RewardCatalogItemDTO: Decodable, Hashable, Identifiable {
+    let id: String
+    let sku: String
+    let title: String
+    let subtitle: String?
+    let description: String?
+    let imageUrl: String?
+    let costPoints: Int
+    let stockRemaining: Int?
+}
+nonisolated struct RewardsCatalogEnvelope: Decodable { let items: [RewardCatalogItemDTO] }
+
+nonisolated struct RedemptionResponse: Decodable {
+    let redemptionId: String
+    let code: String
+    let costPoints: Int
+}
+
+nonisolated struct RedemptionHistoryItemDTO: Decodable, Hashable, Identifiable {
+    let id: String
+    let code: String
+    let costPoints: Int
+    let redeemedAt: TimeInterval
+    let title: String
+    let sku: String
+    let imageUrl: String?
+}
+nonisolated struct RewardsHistoryEnvelope: Decodable { let items: [RedemptionHistoryItemDTO] }

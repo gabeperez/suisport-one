@@ -7,6 +7,7 @@ struct ProfileView: View {
     @State private var showEdit = false
     @State private var showShare = false
     @State private var showAddShoe = false
+    @State private var showRewards = false
     @State private var pendingComingSoon: ComingSoonKind?
     @State private var selectedTrophy: Trophy?
     @State private var selectedAthleteId: String?
@@ -46,6 +47,9 @@ struct ProfileView: View {
                         Button {
                             showShare = true
                         } label: { Label("Share profile", systemImage: "square.and.arrow.up") }
+                        Button { showRewards = true } label: {
+                            Label("Redeem points", systemImage: "gift.fill")
+                        }
                         Button { showAdvanced = true } label: {
                             Label("Advanced", systemImage: "terminal")
                         }
@@ -58,6 +62,7 @@ struct ProfileView: View {
             .sheet(isPresented: $showAdvanced) { AdvancedSheet() }
             .sheet(isPresented: $showEdit) { EditProfileSheet() }
             .sheet(isPresented: $showAddShoe) { AddShoeSheet() }
+            .sheet(isPresented: $showRewards) { RewardsView() }
             .sheet(isPresented: $showShare) {
                 ShareSheet(items: [shareText])
             }

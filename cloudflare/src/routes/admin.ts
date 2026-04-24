@@ -185,6 +185,37 @@ admin.get("/admin/onchain-pending", async (c) => {
     return c.json({ workouts: rows.results ?? [] });
 });
 
+// ---------- Rewards catalog management ----------
+
+admin.post("/admin/rewards/catalog", async (c) => {
+    const body = await c.req.json<{
+        sku: string; title: string; subtitle?: string; description?: string;
+        imageUrl?: string; costPoints: number; codes: string[]; active?: boolean;
+    }>();
+    const id = `rw_${crypto.randomUUID().replace(/-/g, "").slice(0, 16)}`;
+    const codePool = (body.codes ?? []).join("\n");
+    await c.env.DB.prepare(
+        `INSERT INTO rewards_catalog
+           (id, sku, title, subtitle, description, image_url, cost_points,
+            code_pool, stock_total, stock_claimed, active)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)`
+    ).bind(
+        id, body.sku, body.title, body.subtitle ?? null, body.description ?? null,
+        body.imageUrl ?? null, body.costPoints,
+        codePool, body.codes?.length ?? 0, body.active === false ? 0 : 1,
+    ).run();
+    return c.json({ ok: true, id });
+});
+
+admin.get("/admin/rewards/catalog", async (c) => {
+    const rows = await c.env.DB.prepare(
+        `SELECT id, sku, title, cost_points, stock_total, stock_claimed, active
+         FROM rewards_catalog
+         ORDER BY created_at DESC`
+    ).all<Record<string, unknown>>();
+    return c.json({ items: rows.results ?? [] });
+});
+
 admin.get("/admin/attest-keys", async (c) => {
     // App Attest keys by verification status. Pre-hardening keys
     // have cert_chain_ok=0 and can no longer sign assertions (see

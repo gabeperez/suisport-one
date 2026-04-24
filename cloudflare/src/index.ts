@@ -11,6 +11,7 @@ import { auth } from "./routes/auth.js";
 import { account } from "./routes/account.js";
 import { attestation } from "./routes/attestation.js";
 import { sui } from "./routes/sui.js";
+import { rewards } from "./routes/rewards.js";
 import { indexTick } from "./indexer.js";
 import { retryPendingWorkoutsTick } from "./onchain_retry.js";
 
@@ -74,6 +75,7 @@ v1.route("/", account);
 v1.route("/", attestation);
 v1.route("/", sui);
 v1.route("/", social);
+v1.route("/", rewards);
 v1.route("/workouts", workouts);
 v1.route("/", media);
 v1.route("/", admin);

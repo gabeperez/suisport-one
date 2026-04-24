@@ -1,0 +1,152 @@
+// Rewards catalog + redemption.
+//
+// Off-chain MVP: user spends Sweat Points from `sweat_points.total` for
+// a pre-generated code (promo codes, gift cards, etc.). The ledger is
+// D1; no on-chain burn yet. A follow-up will add an on-chain Redemption
+// event + $SWEAT burn so the spend is auditable, but for testnet the
+// server-side accounting is sufficient and testable end-to-end.
+//
+// Admin endpoints for managing the catalog live in admin.ts — this
+// file is the user-facing surface only.
+
+import { Hono } from "hono";
+import { z } from "zod";
+import type { Env, Variables } from "../env.js";
+import { requireAthlete } from "../auth.js";
+import { parseBody } from "../validation.js";
+
+export const rewards = new Hono<{ Bindings: Env; Variables: Variables }>();
+
+// Public catalog — no auth required (the iOS app shows it before the
+// user signs up too, as a "what can I earn" preview). Only returns
+// active items that still have stock.
+rewards.get("/rewards/catalog", async (c) => {
+    const rows = await c.env.DB.prepare(
+        `SELECT id, sku, title, subtitle, description, image_url,
+                cost_points, stock_total, stock_claimed
+         FROM rewards_catalog
+         WHERE active = 1 AND (stock_total = 0 OR stock_claimed < stock_total)
+         ORDER BY cost_points ASC`
+    ).all<{
+        id: string; sku: string; title: string; subtitle: string | null;
+        description: string | null; image_url: string | null;
+        cost_points: number; stock_total: number; stock_claimed: number;
+    }>();
+    return c.json({
+        items: (rows.results ?? []).map(r => ({
+            id: r.id,
+            sku: r.sku,
+            title: r.title,
+            subtitle: r.subtitle,
+            description: r.description,
+            imageUrl: r.image_url,
+            costPoints: r.cost_points,
+            stockRemaining: r.stock_total === 0 ? null : (r.stock_total - r.stock_claimed),
+        })),
+    });
+});
+
+const RedeemSchema = z.object({
+    catalogId: z.string().min(1).max(64),
+});
+
+rewards.post("/rewards/redeem", async (c) => {
+    const athleteId = requireAthlete(c);
+    const { catalogId } = await parseBody(c, RedeemSchema);
+
+    // Read catalog row + user balance atomically-ish. D1 doesn't
+    // offer transactions across prepare calls, but we guard against
+    // double-redeem by using a conditional UPDATE on sweat_points
+    // (spend fails if balance dropped below cost in the meantime).
+    const item = await c.env.DB.prepare(
+        `SELECT id, cost_points, code_pool, stock_total, stock_claimed, active
+         FROM rewards_catalog WHERE id = ?`
+    ).bind(catalogId).first<{
+        id: string; cost_points: number; code_pool: string;
+        stock_total: number; stock_claimed: number; active: number;
+    }>();
+    if (!item) return c.json({ error: "not_found" }, 404);
+    if (item.active === 0) return c.json({ error: "inactive" }, 410);
+    if (item.stock_total > 0 && item.stock_claimed >= item.stock_total) {
+        return c.json({ error: "out_of_stock" }, 410);
+    }
+
+    // Pop the first line from code_pool atomically — substr() + instr()
+    // keeps it as a single UPDATE instead of read-modify-write.
+    // Returns NULL from `changes` if the pool was already empty.
+    const popped = await c.env.DB.prepare(
+        `UPDATE rewards_catalog
+         SET code_pool = CASE
+               WHEN instr(code_pool, x'0a') > 0
+                 THEN substr(code_pool, instr(code_pool, x'0a') + 1)
+               ELSE ''
+             END,
+             stock_claimed = stock_claimed + 1
+         WHERE id = ? AND code_pool != ''
+         RETURNING CASE
+           WHEN instr(code_pool, x'0a') > 0
+             THEN substr(code_pool, 1, instr(code_pool, x'0a') - 1)
+           ELSE code_pool
+         END AS code`
+    ).bind(catalogId).first<{ code: string }>();
+    if (!popped?.code) return c.json({ error: "out_of_stock" }, 410);
+
+    // Spend points — conditional on having enough. If this fails,
+    // we have a lost code. Recover by pushing it back to the pool.
+    const spend = await c.env.DB.prepare(
+        `UPDATE sweat_points
+         SET total = total - ?
+         WHERE athlete_id = ? AND total >= ?`
+    ).bind(item.cost_points, athleteId, item.cost_points).run();
+
+    if ((spend.meta.changes ?? 0) === 0) {
+        // Refund the pool + undo the claim bump.
+        await c.env.DB.prepare(
+            `UPDATE rewards_catalog
+             SET code_pool = ? || CASE WHEN code_pool = '' THEN '' ELSE x'0a' END || code_pool,
+                 stock_claimed = stock_claimed - 1
+             WHERE id = ?`
+        ).bind(popped.code, catalogId).run();
+        return c.json({ error: "insufficient_points" }, 402);
+    }
+
+    const redemptionId = `rd_${crypto.randomUUID().replace(/-/g, "").slice(0, 16)}`;
+    await c.env.DB.prepare(
+        `INSERT INTO redemptions (id, athlete_id, catalog_id, cost_points, code_revealed)
+         VALUES (?, ?, ?, ?, ?)`
+    ).bind(redemptionId, athleteId, catalogId, item.cost_points, popped.code).run();
+
+    return c.json({
+        redemptionId,
+        code: popped.code,
+        costPoints: item.cost_points,
+    });
+});
+
+rewards.get("/rewards/history", async (c) => {
+    const athleteId = requireAthlete(c);
+    const rows = await c.env.DB.prepare(
+        `SELECT r.id, r.code_revealed, r.cost_points, r.redeemed_at,
+                c.title, c.sku, c.image_url
+         FROM redemptions r
+         JOIN rewards_catalog c ON c.id = r.catalog_id
+         WHERE r.athlete_id = ?
+         ORDER BY r.redeemed_at DESC
+         LIMIT 100`
+    ).bind(athleteId).all<{
+        id: string; code_revealed: string; cost_points: number;
+        redeemed_at: number; title: string; sku: string;
+        image_url: string | null;
+    }>();
+    return c.json({
+        items: (rows.results ?? []).map(r => ({
+            id: r.id,
+            code: r.code_revealed,
+            costPoints: r.cost_points,
+            redeemedAt: r.redeemed_at,
+            title: r.title,
+            sku: r.sku,
+            imageUrl: r.image_url,
+        })),
+    });
+});

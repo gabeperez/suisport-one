@@ -240,6 +240,24 @@ final class SocialDataService {
             current.showcasedTrophyIDs = Array(ids.prefix(3))
         }
         self.me = current
+
+        // Fire-and-forget sync to the server. Server's Zod schema
+        // rejects handles that don't match [a-z0-9_]{2,24} — EditProfile
+        // UI enforces the same constraint up-front, but if a bad value
+        // sneaks through, the local optimistic change stays and the
+        // next refresh() pulls whatever the server chose to accept.
+        let patch = AthletePatch(
+            displayName: displayName?.trimmingCharacters(in: .whitespaces),
+            handle: handle?.trimmingCharacters(in: .whitespaces),
+            bio: bio,
+            location: location,
+            avatarTone: avatarTone?.rawValue,
+            bannerTone: bannerTone?.rawValue,
+            photoR2Key: nil
+        )
+        Task.detached {
+            _ = try? await APIClient.shared.updateMe(patch)
+        }
     }
 
     func retireShoe(_ id: UUID) {

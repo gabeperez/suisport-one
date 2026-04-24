@@ -17,6 +17,19 @@ struct EditProfileSheet: View {
     @State private var showcase: [UUID] = []
     @State private var showcasePicker = false
 
+    /// Matches the server's Zod constraint (`/^[a-z0-9_]{2,24}$/`).
+    /// Rendered inline under the handle field, and gates Save.
+    private var handleValid: Bool {
+        let trimmed = handle.trimmingCharacters(in: .whitespaces)
+        guard trimmed.count >= 2, trimmed.count <= 24 else { return false }
+        return trimmed.allSatisfy { $0.isLetter && $0.isLowercase || $0.isNumber || $0 == "_" }
+    }
+
+    /// Name is required (any non-whitespace); handle must be valid.
+    private var isValid: Bool {
+        !displayName.trimmingCharacters(in: .whitespaces).isEmpty && handleValid
+    }
+
     var body: some View {
         NavigationStack {
             ScrollView {
@@ -40,6 +53,7 @@ struct EditProfileSheet: View {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Save") { save() }
                         .font(.system(size: 15, weight: .bold, design: .rounded))
+                        .disabled(!isValid)
                 }
             }
             .sheet(isPresented: $showcasePicker) {
@@ -177,8 +191,11 @@ struct EditProfileSheet: View {
         VStack(spacing: 10) {
             field(title: "Name", text: $displayName, placeholder: "Your name",
                   system: nil, limit: 40)
-            field(title: "Handle", text: $handle, placeholder: "yourhandle",
-                  system: "at", limit: 24, lowercased: true)
+            VStack(alignment: .leading, spacing: 4) {
+                field(title: "Handle", text: $handle, placeholder: "yourhandle",
+                      system: "at", limit: 24, lowercased: true)
+                handleHint
+            }
             field(title: "Location", text: $location, placeholder: "Brooklyn, NY",
                   system: "mappin.circle", limit: 40)
             VStack(alignment: .leading, spacing: 6) {
@@ -199,6 +216,31 @@ struct EditProfileSheet: View {
             .padding(Theme.Space.md)
             .background(RoundedRectangle(cornerRadius: Theme.Radius.lg).fill(Theme.Color.bgElevated))
         }
+    }
+
+    @ViewBuilder
+    private var handleHint: some View {
+        let trimmed = handle.trimmingCharacters(in: .whitespaces)
+        let icon: String
+        let text: String
+        let color: Color
+        if trimmed.isEmpty {
+            icon = "at"; text = "2–24 letters, numbers, or underscores"; color = Theme.Color.inkFaint
+        } else if !handleValid {
+            icon = "exclamationmark.circle.fill"
+            text = trimmed.count < 2 ? "Needs at least 2 characters" : "Only a–z, 0–9, and _"
+            color = Theme.Color.hot
+        } else if let existing = social.me?.handle, trimmed == existing {
+            icon = "checkmark.circle"; text = "Unchanged"; color = Theme.Color.inkFaint
+        } else {
+            icon = "checkmark.circle.fill"; text = "Looks good"; color = Theme.Color.accentDeep
+        }
+        HStack(spacing: 4) {
+            Image(systemName: icon).font(.system(size: 10, weight: .bold))
+            Text(text).font(.system(size: 11, weight: .semibold, design: .rounded))
+        }
+        .foregroundStyle(color)
+        .padding(.horizontal, Theme.Space.md)
     }
 
     private func field(title: String,

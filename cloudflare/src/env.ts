@@ -29,6 +29,12 @@ export type Env = {
     ORACLE_PRIVATE_KEY?: string;         // base64 Ed25519 secret key (attestation signer)
     WALRUS_PUBLISHER_URL?: string;
     WALRUS_AGGREGATOR_URL?: string;
+    // ---- Apple Push Notification service (all optional) ----
+    APNS_KEY_ID?: string;
+    APNS_TEAM_ID?: string;
+    APNS_BUNDLE_ID?: string;
+    APNS_KEY?: string;                            // AuthKey_<kid>.p8 contents
+    APNS_ENV?: "production" | "sandbox";
     // Indexer cursor — advanced per-tick; not user-set.
 };
 

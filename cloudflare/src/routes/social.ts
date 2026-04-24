@@ -9,6 +9,7 @@ import {
 } from "../db.js";
 import { requireAthlete } from "../auth.js";
 import { resolveInternalId } from "../identity.js";
+import { sendPushToAthlete } from "../apns.js";
 import {
     parseBody, AthletePatchSchema, KudosSchema, CommentSchema,
     ReportSchema, CreateClubSchema, AddShoeSchema,
@@ -148,6 +149,10 @@ social.post("/feed/:id/kudos", async (c) => {
              WHERE id = ?`
         ).bind(feedItemId, feedItemId, feedItemId),
     ]);
+    // Fire-and-forget push to the feed-item owner. Don't block the
+    // response on APNs — ctx.waitUntil would be cleaner but Hono
+    // doesn't expose it on the route handler.
+    c.executionCtx.waitUntil(notifyKudos(c.env, feedItemId, athleteId, tip));
     return c.json({ ok: true });
 });
 
@@ -181,6 +186,7 @@ social.post("/feed/:id/comments", async (c) => {
             `UPDATE feed_items SET comment_count = comment_count + 1 WHERE id = ?`
         ).bind(feedItemId),
     ]);
+    c.executionCtx.waitUntil(notifyComment(c.env, feedItemId, athleteId, text));
     return c.json({ id: cid });
 });
 
@@ -508,3 +514,58 @@ social.get("/athletes/:id/sweat", async (c) => {
             : null,
     });
 });
+
+// ---------- Push notification helpers ----------
+
+/// Look up the owner of a feed item + the actor's display name, then
+/// send a kudos push. No-op if the actor IS the owner (self-kudos
+/// shouldn't ping the user's own phone).
+async function notifyKudos(
+    env: Env, feedItemId: string, actorId: string, tip: number
+): Promise<void> {
+    try {
+        const pair = await env.DB.prepare(
+            `SELECT fi.athlete_id AS owner_id, a.display_name AS actor_name, a.handle AS actor_handle
+             FROM feed_items fi, athletes a
+             WHERE fi.id = ? AND a.id = ?`
+        ).bind(feedItemId, actorId).first<{
+            owner_id: string; actor_name: string | null; actor_handle: string | null;
+        }>();
+        if (!pair || pair.owner_id === actorId) return;
+        const who = pair.actor_name || (pair.actor_handle ? `@${pair.actor_handle}` : "Someone");
+        const body = tip > 0 ? `${who} tipped you ${tip} ⚡` : `${who} gave you kudos`;
+        await sendPushToAthlete(env, pair.owner_id,
+            { title: "SuiSport", body },
+            {
+                threadId: `feed:${feedItemId}`,
+                category: "KUDOS",
+                payload: { deepLink: `suisport://feed/${feedItemId}` },
+            });
+    } catch {
+        // Swallow — push is best-effort. Logs in wrangler tail.
+    }
+}
+
+async function notifyComment(
+    env: Env, feedItemId: string, actorId: string, text: string
+): Promise<void> {
+    try {
+        const pair = await env.DB.prepare(
+            `SELECT fi.athlete_id AS owner_id, a.display_name AS actor_name, a.handle AS actor_handle
+             FROM feed_items fi, athletes a
+             WHERE fi.id = ? AND a.id = ?`
+        ).bind(feedItemId, actorId).first<{
+            owner_id: string; actor_name: string | null; actor_handle: string | null;
+        }>();
+        if (!pair || pair.owner_id === actorId) return;
+        const who = pair.actor_name || (pair.actor_handle ? `@${pair.actor_handle}` : "Someone");
+        const snippet = text.length > 120 ? text.slice(0, 117) + "…" : text;
+        await sendPushToAthlete(env, pair.owner_id,
+            { title: who, body: snippet },
+            {
+                threadId: `feed:${feedItemId}`,
+                category: "COMMENT",
+                payload: { deepLink: `suisport://feed/${feedItemId}` },
+            });
+    } catch {}
+}

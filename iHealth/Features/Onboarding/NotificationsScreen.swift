@@ -84,8 +84,11 @@ struct NotificationsScreen: View {
     private func request() async {
         requesting = true
         defer { requesting = false }
-        let center = UNUserNotificationCenter.current()
-        _ = try? await center.requestAuthorization(options: [.alert, .sound, .badge])
+        // Go through PushNotifications.shared so we (a) get iOS to
+        // hand us a device token via the UIApplicationDelegate hook
+        // and (b) upload it to the Worker. Previous behavior only
+        // prompted for permission and never registered for remote.
+        _ = await PushNotifications.shared.requestAuthorization()
         Haptics.success()
         app.completeOnboarding()
     }

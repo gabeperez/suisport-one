@@ -24,6 +24,18 @@ struct RootView: View {
         .onOpenURL { url in
             _ = WalletConnectBridge.shared.handleIncomingURL(url)
         }
+        // Deep links from push notifications arrive via a broadcast
+        // rather than the onOpenURL path — reuse the same wallet
+        // bridge handler so kudos / comment pushes land the same
+        // way. Future routing (e.g. suisport://feed/<id>) can branch
+        // here once we add a feed-item navigator.
+        .onReceive(NotificationCenter.default.publisher(
+            for: PushNotifications.didReceiveDeepLink
+        )) { note in
+            if let url = note.userInfo?["url"] as? URL {
+                _ = WalletConnectBridge.shared.handleIncomingURL(url)
+            }
+        }
     }
 }
 

@@ -102,3 +102,47 @@ async function q(
     const res = await c.env.DB.prepare(sql).bind(...binds).all<Record<string, unknown>>();
     return res.results ?? [];
 }
+
+// ---------------------------------------------------------------------
+// Push token registration.
+//
+// iOS calls this immediately after `didRegisterForRemoteNotifications`
+// returns. Token rotates on reinstall / restore-from-backup, so we
+// upsert on the token as primary key. A single athlete may have
+// multiple rows (iPhone + iPad).
+// ---------------------------------------------------------------------
+account.post("/account/push-token", async (c) => {
+    const id = requireAthlete(c);
+    const body = await c.req.json<{ token: string; env?: string }>().catch(() => null);
+    if (!body?.token || !/^[0-9a-f]{32,200}$/i.test(body.token)) {
+        return c.json({ error: "bad_token" }, 400);
+    }
+    const env = body.env === "sandbox" ? "sandbox" : "production";
+    await c.env.DB.prepare(
+        `INSERT INTO push_tokens (token, athlete_id, platform, env, updated_at, disabled_at)
+         VALUES (?, ?, 'ios', ?, unixepoch(), NULL)
+         ON CONFLICT(token) DO UPDATE SET
+           athlete_id = excluded.athlete_id,
+           env        = excluded.env,
+           updated_at = unixepoch(),
+           disabled_at = NULL,
+           last_error = NULL,
+           last_error_at = NULL`
+    ).bind(body.token, id, env).run();
+    return c.json({ ok: true });
+});
+
+account.delete("/account/push-token", async (c) => {
+    const id = requireAthlete(c);
+    const body = await c.req.json<{ token?: string }>().catch(() => ({} as { token?: string }));
+    if (body.token) {
+        await c.env.DB.prepare(
+            `DELETE FROM push_tokens WHERE token = ? AND athlete_id = ?`
+        ).bind(body.token, id).run();
+    } else {
+        await c.env.DB.prepare(
+            `DELETE FROM push_tokens WHERE athlete_id = ?`
+        ).bind(id).run();
+    }
+    return c.json({ ok: true });
+});

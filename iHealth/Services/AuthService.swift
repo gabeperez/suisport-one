@@ -20,20 +20,67 @@ final class AuthService: NSObject {
 
     // MARK: - Public API
 
-    /// Sign in with Apple. Returns a fully hydrated User with a derived Sui address.
+    /// Sign in with Apple. Pulls the real `identityToken` JWT from the
+    /// credential and exchanges it via `/v1/auth/session`. Backend does
+    /// Enoki zkLogin if configured; otherwise returns a deterministic
+    /// mock address. We fall back to the local-mock path on network /
+    /// backend errors so the app is usable offline.
     func signInWithApple() async throws -> User {
         let credential = try await requestAppleCredential()
         let name = Self.displayName(from: credential)
         let subject = credential.user
-        return await mintMockSession(provider: .apple, subject: subject, name: name)
+
+        guard let tokenData = credential.identityToken,
+              let idToken = String(data: tokenData, encoding: .utf8) else {
+            // Rare: Apple returned a credential with no identity token.
+            // Fall back to offline mock.
+            return await mintMockSession(provider: .apple, subject: subject, name: name)
+        }
+        return await exchangeIdToken(provider: .apple, idToken: idToken,
+                                     displayName: name, fallbackSubject: subject)
     }
 
-    /// Sign in with Google. Stubbed — a real integration uses GoogleSignIn SDK
-    /// to produce an id_token, which the backend exchanges via Enoki.
+    /// Sign in with Google. Still mock — wiring the Google Sign-In SDK
+    /// is tracked in TODO.md §2.4. Once the SDK produces an id_token,
+    /// pass it to `exchangeIdToken(provider: .google, ...)` and delete
+    /// the simulated round-trip below.
     func signInWithGoogle() async throws -> User {
-        // Simulate OAuth round-trip
         try await Task.sleep(nanoseconds: 700_000_000)
         return await mintMockSession(provider: .google, subject: UUID().uuidString, name: nil)
+    }
+
+    /// POST the OAuth id_token to the Worker's /v1/auth/session. On
+    /// success stores the returned sessionJwt in the shared APIClient.
+    /// On failure falls back to a local mock so the app keeps working
+    /// even when the backend is unreachable.
+    private func exchangeIdToken(
+        provider: AuthProvider,
+        idToken: String,
+        displayName: String?,
+        fallbackSubject: String
+    ) async -> User {
+        do {
+            let resp = try await APIClient.shared.exchange(
+                provider: provider, idToken: idToken, displayName: displayName
+            )
+            // Store session so subsequent API calls carry Authorization.
+            APIClient.shared.sessionToken = resp.sessionJwt
+            APIClient.shared.demoAthleteId = nil
+            return User(
+                id: resp.suiAddress,
+                displayName: resp.displayName,
+                avatarURL: nil,
+                goal: nil,
+                suiAddress: resp.suiAddress,
+                createdAt: .now
+            )
+        } catch {
+            // Network / backend unavailable — keep the user on-boarded
+            // with a stable mock address so they can still use the app.
+            return await mintMockSession(
+                provider: provider, subject: fallbackSubject, name: displayName
+            )
+        }
     }
 
     // MARK: - Private

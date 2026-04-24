@@ -766,6 +766,8 @@ private struct AthleteRoute: Hashable { let id: String }
 struct AdvancedSheet: View {
     @Environment(AppState.self) private var app
     @Environment(\.dismiss) private var dismiss
+    @State private var status: SuiStatusResponse?
+    @State private var balance: SweatBalanceResponse?
 
     var body: some View {
         NavigationStack {
@@ -786,11 +788,53 @@ struct AdvancedSheet: View {
                                 .labelStyle(.iconOnly)
                         }
                     }
+                    if let b = balance {
+                        HStack {
+                            Label("$SWEAT balance", systemImage: "bolt.heart.fill")
+                            Spacer()
+                            Text(b.display)
+                                .font(.system(.body, design: .monospaced).weight(.semibold))
+                        }
+                    }
                 }
                 Section("Network") {
-                    Label("View on Sui explorer", systemImage: "safari")
-                    Label("Export workouts", systemImage: "square.and.arrow.up")
-                    Label("Add Passkey backup", systemImage: "key.fill")
+                    HStack {
+                        Label("Network", systemImage: "network")
+                        Spacer()
+                        Text(status?.network ?? "—").foregroundStyle(Theme.Color.inkSoft)
+                    }
+                    HStack {
+                        Label("On-chain pipeline", systemImage: status?.configured == true
+                              ? "checkmark.seal.fill" : "exclamationmark.triangle.fill")
+                        Spacer()
+                        Text(status?.configured == true ? "Live" : "Not configured")
+                            .foregroundStyle(status?.configured == true
+                                             ? Theme.Color.accentDeep : Theme.Color.hot)
+                    }
+                    if let pkg = status?.packageId {
+                        HStack {
+                            Label("Package", systemImage: "shippingbox.fill")
+                            Spacer()
+                            Text(Self.shortenAddress(pkg))
+                                .font(.labelMono)
+                                .foregroundStyle(Theme.Color.inkSoft)
+                        }
+                    }
+                    if let epoch = status?.epoch {
+                        HStack {
+                            Label("Epoch", systemImage: "clock")
+                            Spacer()
+                            Text(epoch).foregroundStyle(Theme.Color.inkSoft)
+                        }
+                    }
+                    if let url = status.flatMap({ URL(string: "\($0.explorerUrl)/account/\(app.currentUser?.suiAddress ?? "")") }) {
+                        Link(destination: url) {
+                            Label("View on Sui explorer", systemImage: "safari")
+                        }
+                    } else {
+                        Label("View on Sui explorer", systemImage: "safari")
+                            .foregroundStyle(Theme.Color.inkFaint)
+                    }
                 }
                 Section {
                     Text("Most people never need this page. It's here if you do.")
@@ -804,7 +848,24 @@ struct AdvancedSheet: View {
                     Button("Done") { dismiss() }
                 }
             }
+            .task { await loadOnChain() }
         }
+    }
+
+    private func loadOnChain() async {
+        async let s = try? await APIClient.shared.fetchSuiStatus()
+        async let b: SweatBalanceResponse? = {
+            guard let addr = app.currentUser?.suiAddress else { return nil }
+            return try? await APIClient.shared.fetchSweatBalance(address: addr)
+        }()
+        let (resolvedStatus, resolvedBalance) = await (s, b)
+        status = resolvedStatus
+        balance = resolvedBalance
+    }
+
+    private static func shortenAddress(_ addr: String) -> String {
+        guard addr.count > 14 else { return addr }
+        return "\(addr.prefix(10))…\(addr.suffix(4))"
     }
 
     private var truncated: String {

@@ -147,6 +147,18 @@ nonisolated final class APIClient: @unchecked Sendable {
         try await post("/workouts", body: req)
     }
 
+    // MARK: - Sui / on-chain
+
+    func fetchSuiStatus() async throws -> SuiStatusResponse { try await get("/sui/status") }
+
+    func fetchSweatBalance(address: String) async throws -> SweatBalanceResponse {
+        try await get("/sui/balance/\(address)")
+    }
+
+    func fetchWorkoutOnChain(workoutId: String) async throws -> WorkoutOnChainResponse {
+        try await get("/workouts/\(workoutId)/onchain")
+    }
+
     // MARK: - Health
 
     func health() async throws -> HealthResponse { try await get("/../health") }
@@ -386,6 +398,35 @@ struct SweatEnvelope: Decodable {
 }
 
 struct HealthResponse: Decodable { let ok: Bool; let ts: Double; let demoSeeded: Bool }
+
+struct SuiStatusResponse: Decodable {
+    let network: String
+    let configured: Bool
+    let packageId: String?
+    let rewardsEngineId: String?
+    let operatorAddress: String?
+    let walrusPublisher: String
+    let walrusAggregator: String
+    let epoch: String?
+    let indexerCursor: String?
+    let explorerUrl: String
+}
+
+struct SweatBalanceResponse: Decodable {
+    let address: String
+    let raw: String
+    let display: String
+}
+
+struct WorkoutOnChainResponse: Decodable {
+    let workoutId: String
+    let verified: Bool
+    let walrusBlobId: String?
+    let walrusUrl: String?
+    let txDigest: String?
+    let txExplorerUrl: String?
+    let sweatMinted: Int
+}
 
 struct IdEnvelope: Decodable { let id: String }
 

@@ -12,6 +12,7 @@ import { account } from "./routes/account.js";
 import { attestation } from "./routes/attestation.js";
 import { sui } from "./routes/sui.js";
 import { indexTick } from "./indexer.js";
+import { retryPendingWorkoutsTick } from "./onchain_retry.js";
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -91,8 +92,13 @@ app.onError((err, c) => {
     return c.json({ error: "internal_error" }, 500);
 });
 
-// Scheduled: Sui event indexer tick. Wired up in wrangler.toml's
-// [triggers] block. A no-op when SUI_* secrets aren't configured.
+// Scheduled: runs every minute (see wrangler.toml [triggers]). Does
+// two things in parallel so a slow one doesn't starve the other:
+//   1. indexTick        — poll Sui events into D1 (read path)
+//   2. retryPendingWorkoutsTick — retry failed submit_workout calls
+//                                  whose D1 row is stuck on
+//                                  sui_tx_digest LIKE 'pending_%'
+// Both no-op gracefully when SUI_* secrets aren't configured.
 export default {
     fetch: app.fetch,
     async scheduled(
@@ -103,6 +109,13 @@ export default {
         ctx.waitUntil(indexTick(env).then((r) => {
             if (!r.ok) console.warn("indexer tick skipped", r.error);
             else if ((r.ingested ?? 0) > 0) console.log(`indexed ${r.ingested} events`);
+        }));
+        ctx.waitUntil(retryPendingWorkoutsTick(env).then((r) => {
+            if (r.succeeded > 0 || r.failed > 0) {
+                console.log(`onchain_retry: succeeded=${r.succeeded} failed=${r.failed} attempted=${r.attempted}`);
+            }
+        }).catch((err) => {
+            console.warn("onchain_retry tick failed", err);
         }));
     },
 };

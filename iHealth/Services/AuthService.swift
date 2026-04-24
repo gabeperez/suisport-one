@@ -40,6 +40,36 @@ final class AuthService: NSObject {
                                      displayName: name, fallbackSubject: subject)
     }
 
+    /// Sign in with an existing Sui wallet (Slush etc.). Fetches a
+    /// server-issued challenge nonce, hands it to the wallet via a
+    /// deep link, collects the signature + address back, and POSTs
+    /// them to /v1/auth/wallet/verify. The backend cryptographically
+    /// verifies the signature so we never trust the client's claim
+    /// alone. Not yet implemented end-to-end from iOS — the
+    /// backend-side verify + challenge exist; this client stub
+    /// surfaces a paste-based flow via WalletConnectBridge so the
+    /// actual wallet app's deep-link protocol is decoupled.
+    func signInWithWallet() async throws -> User {
+        let signed = try await WalletConnectBridge.shared.collectSignedChallenge()
+        let resp = try await APIClient.shared.walletVerify(
+            challengeId: signed.challengeId,
+            address: signed.address,
+            signature: signed.signature
+        )
+        APIClient.shared.sessionToken = resp.sessionJwt
+        APIClient.shared.demoAthleteId = nil
+        return User(
+            id: resp.userId ?? resp.suiAddress,
+            displayName: resp.displayName,
+            avatarURL: nil,
+            goal: nil,
+            suiAddress: resp.suiAddress,
+            suinsName: resp.suinsName,
+            suggestedHandle: resp.handle,
+            createdAt: .now
+        )
+    }
+
     /// Sign in with Google. Uses `ASWebAuthenticationSession` + PKCE —
     /// no SDK dependency. See GoogleAuth.swift. The resulting id_token
     /// is exchanged via the same /v1/auth/session path Apple uses, so

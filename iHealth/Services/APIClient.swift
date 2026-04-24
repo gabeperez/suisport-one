@@ -151,6 +151,18 @@ nonisolated final class APIClient: @unchecked Sendable {
 
     func fetchWhoami() async throws -> WhoamiResponse { try await get("/auth/whoami") }
 
+    // MARK: - Wallet auth
+
+    func walletChallenge() async throws -> WalletChallengeResponse {
+        try await post("/auth/wallet/challenge", body: EmptyBody())
+    }
+
+    func walletVerify(challengeId: String, address: String, signature: String) async throws -> AuthExchangeResponse {
+        try await post("/auth/wallet/verify", body: WalletVerifyRequest(
+            challengeId: challengeId, address: address, signature: signature
+        ))
+    }
+
     // MARK: - Sui / on-chain
 
     func fetchSuiStatus() async throws -> SuiStatusResponse { try await get("/sui/status") }
@@ -404,6 +416,18 @@ nonisolated struct SweatEnvelope: Decodable {
 }
 
 nonisolated struct HealthResponse: Decodable { let ok: Bool; let ts: Double; let demoSeeded: Bool }
+
+nonisolated struct WalletChallengeResponse: Decodable {
+    let challengeId: String
+    let nonce: String
+    let ttlSeconds: Int
+}
+
+nonisolated struct WalletVerifyRequest: Encodable {
+    let challengeId: String
+    let address: String
+    let signature: String
+}
 
 nonisolated struct WhoamiResponse: Decodable {
     let authenticated: Bool

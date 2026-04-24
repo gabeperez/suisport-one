@@ -1,4 +1,6 @@
 import { Hono } from "hono";
+import { z } from "zod";
+import { verifyPersonalMessageSignature } from "@mysten/sui/verify";
 import type { Env, Variables } from "../env.js";
 import { parseBody, AuthExchangeSchema } from "../validation.js";
 import { hasEnokiKey, resolveZkLogin, decodeJwtClaims } from "../enoki.js";
@@ -119,6 +121,124 @@ auth.post("/auth/signout", async (c) => {
             .bind(authHeader.slice(7)).run();
     }
     return c.json({ ok: true });
+});
+
+// Wallet-based sign-in. Two-step flow:
+//
+//   1. POST /v1/auth/wallet/challenge → returns { challengeId, nonce }
+//      The wallet will sign `nonce` as a personal message.
+//   2. POST /v1/auth/wallet/verify { challengeId, address, signature }
+//      → server verifies via Mysten's verifyPersonalMessageSignature,
+//        confirms pubkey-derived address matches the claimed address,
+//        consumes the challenge, upserts athlete row by address, issues
+//        a session with the same shape as /auth/session (zkLogin path).
+//
+// Challenges expire after 5 minutes and are single-use. Binding
+// (challengeId, address) prevents replay + cross-session reuse.
+
+auth.post("/auth/wallet/challenge", async (c) => {
+    const id = crypto.randomUUID();
+    // Human-readable nonce the wallet will show the user when signing.
+    const nonce = `SuiSport sign-in · ${Math.floor(Date.now() / 1000)} · ${id.slice(0, 8)}`;
+    const expiresAt = Math.floor(Date.now() / 1000) + 300;
+    await c.env.DB.prepare(
+        `INSERT INTO wallet_challenges (id, nonce, expires_at) VALUES (?, ?, ?)`
+    ).bind(id, nonce, expiresAt).run();
+    return c.json({ challengeId: id, nonce, ttlSeconds: 300 });
+});
+
+const WalletVerifySchema = z.object({
+    challengeId: z.string().min(1).max(80),
+    address: z.string().regex(/^0x[a-fA-F0-9]{64}$/),
+    signature: z.string().min(1).max(4096),
+});
+
+auth.post("/auth/wallet/verify", async (c) => {
+    const body = await parseBody(c, WalletVerifySchema);
+
+    // 1. Look up + gate the challenge.
+    const row = await c.env.DB.prepare(
+        `SELECT nonce, expires_at, consumed FROM wallet_challenges WHERE id = ?`
+    ).bind(body.challengeId).first<{
+        nonce: string; expires_at: number; consumed: number;
+    }>();
+    if (!row) return c.json({ error: "bad_challenge" }, 400);
+    if (row.consumed === 1) return c.json({ error: "challenge_reused" }, 400);
+    if (Math.floor(Date.now() / 1000) > row.expires_at) {
+        return c.json({ error: "challenge_expired" }, 400);
+    }
+
+    // 2. Verify the wallet's signature over the nonce.
+    const messageBytes = new TextEncoder().encode(row.nonce);
+    let derivedAddress: string;
+    try {
+        const pk = await verifyPersonalMessageSignature(
+            messageBytes, body.signature, { address: body.address }
+        );
+        derivedAddress = pk.toSuiAddress();
+    } catch (err) {
+        return c.json({
+            error: "bad_signature",
+            detail: err instanceof Error ? err.message : "unknown",
+        }, 401);
+    }
+    if (derivedAddress.toLowerCase() !== body.address.toLowerCase()) {
+        return c.json({ error: "address_mismatch" }, 401);
+    }
+
+    // 3. Consume challenge + issue session. Same upsert shape as
+    //    /auth/session so returning wallets hit the exact same athlete
+    //    row they had before.
+    const sessionId = crypto.randomUUID();
+    const sessionExpiresAt = Math.floor(Date.now() / 1000) + 60 * 60 * 24 * 30;
+    const displayName = `Wallet ${body.address.slice(0, 6)}…${body.address.slice(-4)}`;
+    const handle = `w_${body.address.slice(2, 10)}`.toLowerCase();
+
+    const suinsName = await resolveSuiNS(c.env, body.address);
+    const finalDisplayName = suinsName
+        ? suinsName.replace(/\.sui$/, "").split(/[-_]/).map(w =>
+            w.length ? w[0].toUpperCase() + w.slice(1) : w).join(" ")
+        : displayName;
+    const finalHandle = suinsName
+        ? suinsName.replace(/\.sui$/, "").toLowerCase().replace(/[^a-z0-9_]/g, "_").slice(0, 24)
+        : handle;
+
+    await c.env.DB.batch([
+        c.env.DB.prepare(
+            `UPDATE wallet_challenges SET consumed = 1, consumed_addr = ?
+             WHERE id = ?`
+        ).bind(body.address, body.challengeId),
+        c.env.DB.prepare(
+            `INSERT OR IGNORE INTO users (sui_address, display_name, provider)
+             VALUES (?, ?, 'wallet')`
+        ).bind(body.address, finalDisplayName),
+        c.env.DB.prepare(
+            `INSERT INTO athletes (id, handle, display_name, avatar_tone, suins_name)
+             VALUES (?, ?, ?, 'sunset', ?)
+             ON CONFLICT(id) DO UPDATE SET
+                suins_name = COALESCE(excluded.suins_name, athletes.suins_name)`
+        ).bind(body.address, finalHandle, finalDisplayName, suinsName),
+        c.env.DB.prepare(
+            `INSERT INTO sessions (id, sui_address, expires_at) VALUES (?, ?, ?)`
+        ).bind(sessionId, body.address, sessionExpiresAt),
+    ]);
+
+    const userRow = await c.env.DB.prepare(
+        `SELECT user_id, display_name, handle FROM athletes WHERE id = ?`
+    ).bind(body.address).first<{
+        user_id: string; display_name: string; handle: string;
+    }>();
+
+    return c.json({
+        sessionJwt: sessionId,
+        userId: userRow?.user_id ?? null,
+        suiAddress: body.address,
+        displayName: userRow?.display_name ?? finalDisplayName,
+        handle: userRow?.handle ?? finalHandle,
+        suinsName,
+        verified: true,            // signature cryptographically proves ownership
+        provider: "wallet",
+    });
 });
 
 // Diagnostic: returns what the server thinks the current session is.

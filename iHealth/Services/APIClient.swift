@@ -80,12 +80,16 @@ nonisolated final class APIClient: @unchecked Sendable {
         try await fetchFeedPage(sort: sort, limit: limit).items
     }
 
-    func toggleKudos(feedItemId: String, tip: Int, liked: Bool) async throws {
+    func toggleKudos(feedItemId: String, liked: Bool) async throws {
         if liked {
-            _ = try await postVoid("/feed/\(feedItemId)/kudos", body: ["tip": tip])
+            _ = try await postVoid("/feed/\(feedItemId)/kudos", body: EmptyBody())
         } else {
             _ = try await deleteVoid("/feed/\(feedItemId)/kudos")
         }
+    }
+
+    func sendTip(feedItemId: String, amount: Int = 1) async throws {
+        _ = try await postVoid("/feed/\(feedItemId)/tip", body: ["amount": amount])
     }
 
     func postComment(feedItemId: String, body text: String) async throws {

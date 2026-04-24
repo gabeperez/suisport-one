@@ -173,7 +173,7 @@ final class SocialDataService {
 
     // MARK: - Actions (mutate local state, optimistic)
 
-    func toggleKudos(on feedItemId: UUID, tip: Int = 0) {
+    func toggleKudos(on feedItemId: UUID) {
         guard let idx = feed.firstIndex(where: { $0.id == feedItemId }),
               let me else { return }
         var item = feed[idx]
@@ -182,20 +182,30 @@ final class SocialDataService {
             item.kudos.removeAll { $0.athlete.id == me.id }
             item.userHasKudosed = false
         } else {
-            item.kudos.insert(Kudos(id: UUID(), athlete: me, amountSweat: tip, at: .now), at: 0)
+            item.kudos.insert(Kudos(id: UUID(), athlete: me, amountSweat: 0, at: .now), at: 0)
             item.userHasKudosed = true
-            item.tippedSweat += tip
         }
         feed[idx] = item
-        // Fire to the server. We don't await — the UI already reflects the
-        // optimistic mutation; the API call only matters so the next
-        // refresh shows the right aggregate to other viewers.
         let apiId = apiIdForFeedItem(feedItemId)
         if !apiId.isEmpty {
             Task.detached {
                 try? await APIClient.shared.toggleKudos(
-                    feedItemId: apiId, tip: tip, liked: liking
+                    feedItemId: apiId, liked: liking
                 )
+            }
+        }
+    }
+
+    /// Append-only tip. Each call adds `amount` sweat to the item's
+    /// running tipped_sweat total. Unlike kudos this never undoes —
+    /// tipping is a positive-only action.
+    func sendTip(on feedItemId: UUID, amount: Int = 1) {
+        guard let idx = feed.firstIndex(where: { $0.id == feedItemId }) else { return }
+        feed[idx].tippedSweat += amount
+        let apiId = apiIdForFeedItem(feedItemId)
+        if !apiId.isEmpty {
+            Task.detached {
+                try? await APIClient.shared.sendTip(feedItemId: apiId, amount: amount)
             }
         }
     }

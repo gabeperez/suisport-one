@@ -213,11 +213,17 @@ struct WorkoutDetailView: View {
                     icon: item.userHasKudosed ? "bolt.heart.fill" : "bolt.heart",
                     tint: item.userHasKudosed ? Theme.Color.hot : Theme.Color.ink
                 ) {
-                    SocialDataService.shared.toggleKudos(on: item.id, tip: 0)
+                    SocialDataService.shared.toggleKudos(on: item.id)
+                }
+                // Separate tip actions — each button sends a different
+                // amount. Tips stack (append-only) and don't toggle.
+                PillButton(title: "Tip 1", icon: "bolt.fill",
+                           tint: Theme.Color.gold, fg: Theme.Color.accentInk) {
+                    SocialDataService.shared.sendTip(on: item.id, amount: 1)
                 }
                 PillButton(title: "Tip 5", icon: "plus.circle.fill",
                            tint: Theme.Color.gold, fg: Theme.Color.accentInk) {
-                    SocialDataService.shared.toggleKudos(on: item.id, tip: 5)
+                    SocialDataService.shared.sendTip(on: item.id, amount: 5)
                 }
             }
         }

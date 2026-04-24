@@ -254,8 +254,11 @@ struct FeedView: View {
                     item: item,
                     onTap: { selectedItem = item },
                     onAthleteTap: { selectedAthlete = item.athlete },
-                    onKudosTap: { tip in
-                        SocialDataService.shared.toggleKudos(on: item.id, tip: tip)
+                    onKudosTap: {
+                        SocialDataService.shared.toggleKudos(on: item.id)
+                    },
+                    onTipTap: {
+                        SocialDataService.shared.sendTip(on: item.id, amount: 1)
                     },
                     onMute: {
                         SocialDataService.shared.muteAthlete(item.athlete.id)
@@ -336,11 +339,13 @@ struct FeedCard: View {
     let item: FeedItem
     let onTap: () -> Void
     let onAthleteTap: () -> Void
-    let onKudosTap: (Int) -> Void
+    let onKudosTap: () -> Void
+    let onTipTap: () -> Void
     let onMute: () -> Void
     let onReport: () -> Void
 
     @State private var kudosBurst = false
+    @State private var tipBurst = false
     @State private var showShare = false
 
     var body: some View {
@@ -484,10 +489,10 @@ struct FeedCard: View {
     }
 
     private var actionsRow: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: 10) {
             kudosButton
             commentButton
-            tipBadge
+            tipButton
             Spacer()
             shareButton
         }
@@ -495,33 +500,73 @@ struct FeedCard: View {
 
     private var kudosButton: some View {
         Button {
-            let tip = Int.random(in: 0...3) == 0 ? 1 : 0
             withAnimation(Theme.Motion.bounce) { kudosBurst = true }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                 kudosBurst = false
             }
             Haptics.pop()
-            onKudosTap(tip)
+            onKudosTap()
         } label: {
             HStack(spacing: 6) {
-                ZStack {
-                    Image(systemName: item.userHasKudosed ? "bolt.heart.fill" : "bolt.heart")
-                        .font(.system(size: 15, weight: .bold))
-                        .foregroundStyle(item.userHasKudosed ? Theme.Color.hot : Theme.Color.ink)
-                        .scaleEffect(kudosBurst ? 1.35 : 1.0)
-                    if kudosBurst {
-                        KudosCoin(size: 16)
-                            .offset(y: -28)
-                            .opacity(kudosBurst ? 0 : 1)
-                            .animation(.easeOut(duration: 0.5), value: kudosBurst)
-                    }
-                }
+                Image(systemName: item.userHasKudosed ? "bolt.heart.fill" : "bolt.heart")
+                    .font(.system(size: 15, weight: .bold))
+                    .foregroundStyle(item.userHasKudosed ? Theme.Color.hot : Theme.Color.ink)
+                    .scaleEffect(kudosBurst ? 1.35 : 1.0)
                 Text("\(item.kudosCount)")
                     .font(.system(size: 14, weight: .semibold, design: .rounded))
             }
             .foregroundStyle(Theme.Color.ink)
             .padding(.horizontal, 10).padding(.vertical, 7)
             .background(Capsule().fill(Theme.Color.surface))
+        }
+        .buttonStyle(.plain)
+    }
+
+    /// Tappable tip — each tap adds 1 sweat and is visible as a
+    /// running total on the badge. Long-press (future) will open an
+    /// amount picker. Unlike kudos this is append-only — there is no
+    /// un-tip.
+    private var tipButton: some View {
+        Button {
+            withAnimation(Theme.Motion.bounce) { tipBurst = true }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) {
+                tipBurst = false
+            }
+            Haptics.tap()
+            onTipTap()
+        } label: {
+            HStack(spacing: 5) {
+                ZStack {
+                    KudosCoin(size: 14)
+                        .scaleEffect(tipBurst ? 1.3 : 1.0)
+                    if tipBurst {
+                        Text("+1")
+                            .font(.system(size: 10, weight: .bold, design: .rounded))
+                            .foregroundStyle(Theme.Color.gold)
+                            .offset(y: -18)
+                            .opacity(tipBurst ? 0 : 1)
+                            .animation(.easeOut(duration: 0.55), value: tipBurst)
+                    }
+                }
+                Text("\(item.tippedSweat)")
+                    .font(.system(size: 14, weight: .bold, design: .rounded))
+                    .contentTransition(.numericText(value: Double(item.tippedSweat)))
+            }
+            .foregroundStyle(Theme.Color.gold)
+            .padding(.horizontal, 10).padding(.vertical, 7)
+            .background(
+                Capsule().fill(
+                    item.tippedSweat > 0
+                        ? Theme.Color.gold.opacity(0.15)
+                        : Theme.Color.surface
+                )
+            )
+            .overlay(
+                Capsule().strokeBorder(
+                    item.tippedSweat > 0 ? Theme.Color.gold.opacity(0.35) : .clear,
+                    lineWidth: 1
+                )
+            )
         }
         .buttonStyle(.plain)
     }
@@ -539,20 +584,6 @@ struct FeedCard: View {
             .background(Capsule().fill(Theme.Color.surface))
         }
         .buttonStyle(.plain)
-    }
-
-    @ViewBuilder
-    private var tipBadge: some View {
-        if item.tippedSweat > 0 {
-            HStack(spacing: 5) {
-                KudosCoin(size: 14)
-                Text("\(item.tippedSweat) tipped")
-                    .font(.system(size: 12, weight: .semibold, design: .rounded))
-            }
-            .foregroundStyle(Theme.Color.gold)
-            .padding(.horizontal, 8).padding(.vertical, 6)
-            .background(Capsule().fill(Theme.Color.gold.opacity(0.12)))
-        }
     }
 
     private var shareButton: some View {

@@ -18,7 +18,13 @@ export const AthletePatchSchema = z.object({
 });
 
 export const KudosSchema = z.object({
+    // Kept for wire compatibility with older clients; any tip value
+    // here is ignored. Use POST /feed/:id/tip instead.
     tip: z.number().int().min(0).max(100).optional().default(0),
+});
+
+export const TipSchema = z.object({
+    amount: z.number().int().min(1).max(100).default(1),
 });
 
 export const CommentSchema = z.object({

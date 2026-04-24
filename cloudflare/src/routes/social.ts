@@ -11,7 +11,7 @@ import { requireAthlete } from "../auth.js";
 import { resolveInternalId } from "../identity.js";
 import { sendPushToAthlete } from "../apns.js";
 import {
-    parseBody, AthletePatchSchema, KudosSchema, CommentSchema,
+    parseBody, AthletePatchSchema, KudosSchema, TipSchema, CommentSchema,
     ReportSchema, CreateClubSchema, AddShoeSchema,
 } from "../validation.js";
 
@@ -131,28 +131,26 @@ social.get("/feed", async (c) => {
 
 // ---------- Kudos + comments ----------
 
+// Kudos: pure heart/clap toggle. No payment semantics. The body's
+// `tip` field is accepted (older clients may send it) but ignored.
+// Use POST /feed/:id/tip to send sweat.
 social.post("/feed/:id/kudos", async (c) => {
     const athleteId = requireAthlete(c);
     const feedItemId = c.req.param("id");
-    const body = await parseBody(c, KudosSchema);
-    const tip = body.tip;
+    await parseBody(c, KudosSchema).catch(() => ({ tip: 0 }));   // validate + discard
     const kudosId = crypto.randomUUID();
     await c.env.DB.batch([
         c.env.DB.prepare(
             `INSERT OR IGNORE INTO kudos (id, feed_item_id, athlete_id, amount_sweat)
-             VALUES (?, ?, ?, ?)`
-        ).bind(kudosId, feedItemId, athleteId, tip),
+             VALUES (?, ?, ?, 0)`
+        ).bind(kudosId, feedItemId, athleteId),
         c.env.DB.prepare(
             `UPDATE feed_items
-             SET kudos_count = (SELECT COUNT(*) FROM kudos WHERE feed_item_id = ?),
-                 tipped_sweat = (SELECT COALESCE(SUM(amount_sweat), 0) FROM kudos WHERE feed_item_id = ?)
+             SET kudos_count = (SELECT COUNT(*) FROM kudos WHERE feed_item_id = ?)
              WHERE id = ?`
-        ).bind(feedItemId, feedItemId, feedItemId),
+        ).bind(feedItemId, feedItemId),
     ]);
-    // Fire-and-forget push to the feed-item owner. Don't block the
-    // response on APNs — ctx.waitUntil would be cleaner but Hono
-    // doesn't expose it on the route handler.
-    c.executionCtx.waitUntil(notifyKudos(c.env, feedItemId, athleteId, tip));
+    c.executionCtx.waitUntil(notifyKudos(c.env, feedItemId, athleteId));
     return c.json({ ok: true });
 });
 
@@ -164,11 +162,33 @@ social.delete("/feed/:id/kudos", async (c) => {
             .bind(feedItemId, athleteId),
         c.env.DB.prepare(
             `UPDATE feed_items
-             SET kudos_count = (SELECT COUNT(*) FROM kudos WHERE feed_item_id = ?),
-                 tipped_sweat = (SELECT COALESCE(SUM(amount_sweat), 0) FROM kudos WHERE feed_item_id = ?)
+             SET kudos_count = (SELECT COUNT(*) FROM kudos WHERE feed_item_id = ?)
              WHERE id = ?`
-        ).bind(feedItemId, feedItemId, feedItemId),
+        ).bind(feedItemId, feedItemId),
     ]);
+    return c.json({ ok: true });
+});
+
+// Tips: append-only ledger. Each POST adds `amount` sweat (default 1)
+// and is visible as an increment to feed_items.tipped_sweat. Users can
+// tip the same feed item many times; unlike kudos there is no "unshift".
+social.post("/feed/:id/tip", async (c) => {
+    const athleteId = requireAthlete(c);
+    const feedItemId = c.req.param("id");
+    const { amount } = await parseBody(c, TipSchema);
+    const tipId = crypto.randomUUID();
+    await c.env.DB.batch([
+        c.env.DB.prepare(
+            `INSERT INTO tips (id, feed_item_id, athlete_id, amount_sweat)
+             VALUES (?, ?, ?, ?)`
+        ).bind(tipId, feedItemId, athleteId, amount),
+        c.env.DB.prepare(
+            `UPDATE feed_items
+             SET tipped_sweat = (SELECT COALESCE(SUM(amount_sweat), 0) FROM tips WHERE feed_item_id = ?)
+             WHERE id = ?`
+        ).bind(feedItemId, feedItemId),
+    ]);
+    c.executionCtx.waitUntil(notifyTip(c.env, feedItemId, athleteId, amount));
     return c.json({ ok: true });
 });
 
@@ -521,29 +541,50 @@ social.get("/athletes/:id/sweat", async (c) => {
 /// send a kudos push. No-op if the actor IS the owner (self-kudos
 /// shouldn't ping the user's own phone).
 async function notifyKudos(
-    env: Env, feedItemId: string, actorId: string, tip: number
+    env: Env, feedItemId: string, actorId: string
 ): Promise<void> {
     try {
-        const pair = await env.DB.prepare(
-            `SELECT fi.athlete_id AS owner_id, a.display_name AS actor_name, a.handle AS actor_handle
-             FROM feed_items fi, athletes a
-             WHERE fi.id = ? AND a.id = ?`
-        ).bind(feedItemId, actorId).first<{
-            owner_id: string; actor_name: string | null; actor_handle: string | null;
-        }>();
-        if (!pair || pair.owner_id === actorId) return;
-        const who = pair.actor_name || (pair.actor_handle ? `@${pair.actor_handle}` : "Someone");
-        const body = tip > 0 ? `${who} tipped you ${tip} ⚡` : `${who} gave you kudos`;
+        const pair = await actorAndOwner(env, feedItemId, actorId);
+        if (!pair) return;
         await sendPushToAthlete(env, pair.owner_id,
-            { title: "SuiSport", body },
+            { title: "SuiSport", body: `${pair.who} gave you kudos` },
             {
                 threadId: `feed:${feedItemId}`,
                 category: "KUDOS",
                 payload: { deepLink: `suisport://feed/${feedItemId}` },
             });
-    } catch {
-        // Swallow — push is best-effort. Logs in wrangler tail.
-    }
+    } catch {}
+}
+
+async function notifyTip(
+    env: Env, feedItemId: string, actorId: string, amount: number
+): Promise<void> {
+    try {
+        const pair = await actorAndOwner(env, feedItemId, actorId);
+        if (!pair) return;
+        await sendPushToAthlete(env, pair.owner_id,
+            { title: "SuiSport", body: `${pair.who} tipped you ${amount} ⚡` },
+            {
+                threadId: `feed:${feedItemId}`,
+                category: "TIP",
+                payload: { deepLink: `suisport://feed/${feedItemId}` },
+            });
+    } catch {}
+}
+
+async function actorAndOwner(
+    env: Env, feedItemId: string, actorId: string
+): Promise<{ owner_id: string; who: string } | null> {
+    const row = await env.DB.prepare(
+        `SELECT fi.athlete_id AS owner_id, a.display_name AS actor_name, a.handle AS actor_handle
+         FROM feed_items fi, athletes a
+         WHERE fi.id = ? AND a.id = ?`
+    ).bind(feedItemId, actorId).first<{
+        owner_id: string; actor_name: string | null; actor_handle: string | null;
+    }>();
+    if (!row || row.owner_id === actorId) return null;
+    const who = row.actor_name || (row.actor_handle ? `@${row.actor_handle}` : "Someone");
+    return { owner_id: row.owner_id, who };
 }
 
 async function notifyComment(

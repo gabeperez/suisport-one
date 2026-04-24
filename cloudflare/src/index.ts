@@ -10,6 +10,8 @@ import { admin } from "./routes/admin.js";
 import { auth } from "./routes/auth.js";
 import { account } from "./routes/account.js";
 import { attestation } from "./routes/attestation.js";
+import { sui } from "./routes/sui.js";
+import { indexTick } from "./indexer.js";
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -52,6 +54,7 @@ v1.use("*", async (c, next) => {
 v1.route("/", auth);
 v1.route("/", account);
 v1.route("/", attestation);
+v1.route("/", sui);
 v1.route("/", social);
 v1.route("/workouts", workouts);
 v1.route("/", media);
@@ -71,4 +74,18 @@ app.onError((err, c) => {
     return c.json({ error: "internal_error" }, 500);
 });
 
-export default app;
+// Scheduled: Sui event indexer tick. Wired up in wrangler.toml's
+// [triggers] block. A no-op when SUI_* secrets aren't configured.
+export default {
+    fetch: app.fetch,
+    async scheduled(
+        _event: ScheduledEvent,
+        env: Env,
+        ctx: ExecutionContext
+    ): Promise<void> {
+        ctx.waitUntil(indexTick(env).then((r) => {
+            if (!r.ok) console.warn("indexer tick skipped", r.error);
+            else if ((r.ingested ?? 0) > 0) console.log(`indexed ${r.ingested} events`);
+        }));
+    },
+};

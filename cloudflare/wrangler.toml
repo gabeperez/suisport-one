@@ -24,6 +24,11 @@ type = "ratelimit"
 namespace_id = "1001"
 simple = { limit = 60, period = 60 }
 
+# Sui event indexer runs every minute when SUI_* secrets are configured;
+# no-op otherwise. Tick is safe to miss — we read the cursor off D1.
+[triggers]
+crons = ["* * * * *"]
+
 # ----- Staging environment -----
 # Deploy with `wrangler deploy --env staging`. Requires a separate D1
 # database for isolation. You're currently at the Cloudflare 10-DB cap

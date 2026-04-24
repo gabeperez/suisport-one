@@ -3,6 +3,7 @@ import type { Env, Variables } from "../env.js";
 import { workoutDTO, type WorkoutRow } from "../db.js";
 import { requireAthlete } from "../auth.js";
 import { parseBody, SubmitWorkoutSchema } from "../validation.js";
+import { vetWorkout } from "../fraud.js";
 
 export const workouts = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -14,6 +15,11 @@ workouts.post("/", async (c) => {
     const athleteId = requireAthlete(c);
     const body = await parseBody(c, SubmitWorkoutSchema);
 
+    const vet = await vetWorkout(c.env, athleteId, body);
+    if (!vet.ok) {
+        return c.json({ error: "workout_rejected", reason: vet.reason }, 422);
+    }
+
     const workoutId = `w_${crypto.randomUUID().replace(/-/g, "").slice(0, 16)}`;
     const feedId = `fi_${crypto.randomUUID().replace(/-/g, "").slice(0, 16)}`;
     const mapSeed = Math.floor(Math.random() * 1000);
@@ -23,13 +29,13 @@ workouts.post("/", async (c) => {
             `INSERT INTO workouts (
                 id, athlete_id, type, start_date, duration_seconds,
                 distance_meters, energy_kcal, avg_heart_rate, pace_seconds_per_km,
-                points, verified, is_demo
-             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0)`
+                points, verified, is_demo, canonical_hash
+             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?)`
         ).bind(
             workoutId, athleteId, body.type, body.startDate, body.durationSeconds,
             body.distanceMeters ?? null, body.energyKcal ?? null,
             body.avgHeartRate ?? null, body.paceSecondsPerKm ?? null,
-            body.points
+            body.points, vet.canonicalHash
         ),
         c.env.DB.prepare(
             `INSERT INTO feed_items (id, athlete_id, workout_id, title, caption, map_preview_seed, is_demo)

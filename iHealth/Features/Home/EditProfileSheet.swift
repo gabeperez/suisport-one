@@ -218,28 +218,43 @@ struct EditProfileSheet: View {
         }
     }
 
-    @ViewBuilder
-    private var handleHint: some View {
-        let trimmed = handle.trimmingCharacters(in: .whitespaces)
+    private struct HandleHintConfig {
         let icon: String
         let text: String
         let color: Color
+    }
+
+    private var handleHintConfig: HandleHintConfig {
+        let trimmed = handle.trimmingCharacters(in: .whitespaces)
         if trimmed.isEmpty {
-            icon = "at"; text = "2–24 letters, numbers, or underscores"; color = Theme.Color.inkFaint
-        } else if !handleValid {
-            icon = "exclamationmark.circle.fill"
-            text = trimmed.count < 2 ? "Needs at least 2 characters" : "Only a–z, 0–9, and _"
-            color = Theme.Color.hot
-        } else if let existing = social.me?.handle, trimmed == existing {
-            icon = "checkmark.circle"; text = "Unchanged"; color = Theme.Color.inkFaint
-        } else {
-            icon = "checkmark.circle.fill"; text = "Looks good"; color = Theme.Color.accentDeep
+            return .init(icon: "at",
+                         text: "2–24 letters, numbers, or underscores",
+                         color: Theme.Color.inkFaint)
         }
-        HStack(spacing: 4) {
-            Image(systemName: icon).font(.system(size: 10, weight: .bold))
-            Text(text).font(.system(size: 11, weight: .semibold, design: .rounded))
+        if !handleValid {
+            return .init(icon: "exclamationmark.circle.fill",
+                         text: trimmed.count < 2
+                             ? "Needs at least 2 characters"
+                             : "Only a–z, 0–9, and _",
+                         color: Theme.Color.hot)
         }
-        .foregroundStyle(color)
+        if let existing = social.me?.handle, trimmed == existing {
+            return .init(icon: "checkmark.circle",
+                         text: "Unchanged",
+                         color: Theme.Color.inkFaint)
+        }
+        return .init(icon: "checkmark.circle.fill",
+                     text: "Looks good",
+                     color: Theme.Color.accentDeep)
+    }
+
+    private var handleHint: some View {
+        let cfg = handleHintConfig
+        return HStack(spacing: 4) {
+            Image(systemName: cfg.icon).font(.system(size: 10, weight: .bold))
+            Text(cfg.text).font(.system(size: 11, weight: .semibold, design: .rounded))
+        }
+        .foregroundStyle(cfg.color)
         .padding(.horizontal, Theme.Space.md)
     }
 

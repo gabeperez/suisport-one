@@ -35,6 +35,8 @@ struct ProfileView: View {
                     Color.clear.frame(height: 120)
                 }
                 .padding(.horizontal, Theme.Space.md)
+                .frame(maxWidth: 640)
+                .frame(maxWidth: .infinity)
             }
             .background(Theme.Color.bg.ignoresSafeArea())
             .navigationBarTitleDisplayMode(.inline)

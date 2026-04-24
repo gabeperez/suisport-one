@@ -29,6 +29,12 @@ struct FeedView: View {
                 }
                 .padding(.horizontal, Theme.Space.md)
                 .padding(.top, Theme.Space.sm)
+                // Cap content width on iPad — iOS stretches a ScrollView
+                // edge-to-edge by default, which makes feed cards look
+                // absurdly wide. 640pt matches a comfortable reading
+                // measure for most device classes.
+                .frame(maxWidth: 640)
+                .frame(maxWidth: .infinity)
             }
             .refreshable { await social.refresh() }
             .background(Theme.Color.bg.ignoresSafeArea())

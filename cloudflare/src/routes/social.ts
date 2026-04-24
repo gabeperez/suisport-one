@@ -20,7 +20,9 @@ export const social = new Hono<{ Bindings: Env; Variables: Variables }>();
 
 social.get("/athletes", async (c) => {
     const rows = await c.env.DB.prepare(
-        "SELECT * FROM athletes ORDER BY total_workouts DESC LIMIT 200"
+        `SELECT * FROM athletes
+         WHERE suspended_at IS NULL
+         ORDER BY total_workouts DESC LIMIT 200`
     ).all<AthleteRow>();
     return c.json({ athletes: rows.results.map(athleteDTO) });
 });
@@ -54,6 +56,7 @@ social.patch("/me", async (c) => {
     if (body.avatarTone != null) { fields.push("avatar_tone = ?"); binds.push(body.avatarTone); }
     if (body.bannerTone != null) { fields.push("banner_tone = ?"); binds.push(body.bannerTone); }
     if (body.photoR2Key !== undefined) { fields.push("photo_r2_key = ?"); binds.push(body.photoR2Key); }
+    if (body.dob != null) { fields.push("dob = ?"); binds.push(body.dob); }
     if (!fields.length) return c.json({ ok: true });
     fields.push("updated_at = unixepoch()");
     binds.push(id);
@@ -75,6 +78,7 @@ social.get("/feed", async (c) => {
         `SELECT fi.*, a.id AS _a_id, w.id AS _w_id FROM feed_items fi
          JOIN athletes a ON a.id = fi.athlete_id
          JOIN workouts w ON w.id = fi.workout_id
+         WHERE a.suspended_at IS NULL
          ORDER BY ${order} LIMIT ?`
     ).bind(limit).all<FeedItemRow & { _a_id: string; _w_id: string }>();
 

@@ -23,6 +23,8 @@ export interface WorkoutPayload {
     startDate: number;
     durationSeconds: number;
     distanceMeters?: number | null;
+    energyKcal?: number | null;
+    avgHeartRate?: number | null;
     points: number;
 }
 
@@ -31,14 +33,27 @@ export async function canonicalHash(
     w: WorkoutPayload
 ): Promise<string> {
     // Canonicalize the fields that identify "the same workout":
-    // athlete + start time (rounded to minute) + duration (rounded) +
-    // distance (rounded to 10m) + type.
+    // athlete + start minute + duration minute + distance (10m bucket)
+    // + type + energy (25-kcal bucket) + avg HR (5-bpm bucket).
+    //
+    // The energy + heart-rate buckets protect against the theoretical
+    // minute-granularity collision: two distinct workouts starting in
+    // the same minute with identical duration + distance still have
+    // different calorie burn + HR signatures in practice, so they
+    // won't hash to the same value. Bucket sizes are coarse enough to
+    // tolerate sensor jitter on genuine re-uploads of the same run.
     const minute = Math.floor(w.startDate / 60);
     const durMin = Math.round(w.durationSeconds / 60);
     const distBucket = w.distanceMeters != null
         ? Math.round(w.distanceMeters / 10) * 10
         : 0;
-    const canonical = `${athleteId}|${w.type}|${minute}|${durMin}|${distBucket}`;
+    const kcalBucket = w.energyKcal != null
+        ? Math.round(w.energyKcal / 25) * 25
+        : 0;
+    const hrBucket = w.avgHeartRate != null
+        ? Math.round(w.avgHeartRate / 5) * 5
+        : 0;
+    const canonical = `${athleteId}|${w.type}|${minute}|${durMin}|${distBucket}|${kcalBucket}|${hrBucket}`;
     const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(canonical));
     return [...new Uint8Array(buf)]
         .map((b) => b.toString(16).padStart(2, "0"))

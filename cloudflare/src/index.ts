@@ -8,6 +8,8 @@ import { workouts } from "./routes/workouts.js";
 import { media } from "./routes/media.js";
 import { admin } from "./routes/admin.js";
 import { auth } from "./routes/auth.js";
+import { account } from "./routes/account.js";
+import { attestation } from "./routes/attestation.js";
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -48,6 +50,8 @@ v1.use("*", async (c, next) => {
     return rateLimit(c, next);
 });
 v1.route("/", auth);
+v1.route("/", account);
+v1.route("/", attestation);
 v1.route("/", social);
 v1.route("/workouts", workouts);
 v1.route("/", media);

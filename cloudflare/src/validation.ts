@@ -13,6 +13,8 @@ export const AthletePatchSchema = z.object({
     avatarTone: z.string().max(20).optional(),
     bannerTone: z.string().max(20).optional(),
     photoR2Key: z.string().max(200).nullable().optional(),
+    /** Unix seconds — date of birth for 13+ / HealthKit compliance */
+    dob: z.number().int().optional(),
 });
 
 export const KudosSchema = z.object({

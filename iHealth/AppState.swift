@@ -90,6 +90,18 @@ final class AppState {
         }
     }
 
+    /// Persists DOB on the signed-in user and PATCHes the athlete row (unix seconds).
+    func setDOB(_ date: Date) {
+        if var user = currentUser {
+            user.dateOfBirth = date
+            currentUser = user
+        }
+        let unix = Int(date.timeIntervalSince1970)
+        Task {
+            _ = try? await APIClient.shared.updateMe(AthletePatch(dob: unix))
+        }
+    }
+
     // MARK: - Health backfill
 
     func requestHealthAuth() async -> Bool {

@@ -281,6 +281,8 @@ nonisolated struct AthleteDTO: Decodable, Hashable {
     let location: String?
     let photoURL: String?
     let suinsName: String?
+    /// Unix seconds at start-of-day UTC (or any server-stored instant); nil if unset.
+    let dob: TimeInterval?
     let isDemo: Bool
 }
 nonisolated struct AthleteEnvelope: Decodable { let athlete: AthleteDTO }
@@ -503,6 +505,28 @@ nonisolated struct AthletePatch: Encodable {
     var avatarTone: String?
     var bannerTone: String?
     var photoR2Key: String?
+    /// Unix seconds; HealthKit age gate (13+).
+    var dob: Int?
+
+    init(
+        displayName: String? = nil,
+        handle: String? = nil,
+        bio: String? = nil,
+        location: String? = nil,
+        avatarTone: String? = nil,
+        bannerTone: String? = nil,
+        photoR2Key: String? = nil,
+        dob: Int? = nil
+    ) {
+        self.displayName = displayName
+        self.handle = handle
+        self.bio = bio
+        self.location = location
+        self.avatarTone = avatarTone
+        self.bannerTone = bannerTone
+        self.photoR2Key = photoR2Key
+        self.dob = dob
+    }
 }
 
 nonisolated struct ReportRequest: Encodable {

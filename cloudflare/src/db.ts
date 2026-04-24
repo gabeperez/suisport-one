@@ -18,6 +18,8 @@ export type AthleteRow = {
     photo_r2_key: string | null;
     suins_name: string | null;
     is_demo: number;
+    /** Present after migration 0007; null until captured in onboarding. */
+    dob?: number | null;
 };
 
 export type WorkoutRow = {
@@ -151,6 +153,7 @@ export function athleteDTO(r: AthleteRow) {
         location: r.location,
         photoURL: r.photo_r2_key ? `/media/${r.photo_r2_key}` : null,
         suinsName: r.suins_name,
+        dob: r.dob ?? null,
         isDemo: r.is_demo === 1,
     };
 }

@@ -13,6 +13,8 @@ struct User: Identifiable, Hashable, Codable {
     /// Suggested default handle from SuiNS — "alice" from "alice.sui".
     /// NameGoal uses it as a placeholder; user can override.
     var suggestedHandle: String? = nil
+    /// Set during onboarding age gate; synced to `PATCH /me` as unix seconds.
+    var dateOfBirth: Date? = nil
     var createdAt: Date
 }
 

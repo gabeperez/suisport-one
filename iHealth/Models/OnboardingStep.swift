@@ -3,10 +3,11 @@ import Foundation
 enum OnboardingStep: Int, CaseIterable, Comparable {
     case hero = 0
     case auth = 1
-    case nameGoal = 2
-    case healthPermission = 3
-    case backfill = 4
-    case notifications = 5
+    case ageGate = 2
+    case nameGoal = 3
+    case healthPermission = 4
+    case backfill = 5
+    case notifications = 6
 
     static func < (lhs: OnboardingStep, rhs: OnboardingStep) -> Bool {
         lhs.rawValue < rhs.rawValue
@@ -20,6 +21,6 @@ enum OnboardingStep: Int, CaseIterable, Comparable {
     var showsProgress: Bool { self != .hero }
 
     /// Number of dots to show in the step indicator.
-    static let progressStepCount = 5
+    static let progressStepCount = 6
     var progressIndex: Int { max(0, rawValue - 1) }
 }

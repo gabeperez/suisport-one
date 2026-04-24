@@ -36,6 +36,12 @@ struct OnboardingCoordinator: View {
                         insertion: .move(edge: .trailing).combined(with: .opacity),
                         removal: .opacity
                     ))
+            case .ageGate:
+                AgeGateScreen()
+                    .transition(.asymmetric(
+                        insertion: .move(edge: .trailing).combined(with: .opacity),
+                        removal: .move(edge: .leading).combined(with: .opacity)
+                    ))
             }
         }
         .animation(Theme.Motion.soft, value: app.onboardingStep)

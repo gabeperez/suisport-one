@@ -22,9 +22,16 @@ sui.get("/sui/status", async (c) => {
             epoch = null;
         }
     }
-    const cursor = await c.env.DB.prepare(
-        `SELECT value FROM schema_meta WHERE key = 'sui_indexer_cursor'`
-    ).first<{ value: string }>();
+    const [cursor, health] = await Promise.all([
+        c.env.DB.prepare(`SELECT value FROM schema_meta WHERE key = 'sui_indexer_cursor'`)
+            .first<{ value: string }>(),
+        c.env.DB.prepare(`SELECT value FROM schema_meta WHERE key = 'sui_indexer_health'`)
+            .first<{ value: string }>(),
+    ]);
+    let indexerHealth: Record<string, unknown> | null = null;
+    if (health?.value) {
+        try { indexerHealth = JSON.parse(health.value); } catch { /* noop */ }
+    }
     const net = network;
     const explorer = net === "mainnet" ? "https://suiscan.xyz/mainnet" : "https://suiscan.xyz/testnet";
     return c.json({
@@ -39,6 +46,7 @@ sui.get("/sui/status", async (c) => {
         walrusAggregator: c.env.WALRUS_AGGREGATOR_URL ?? "https://aggregator.walrus-testnet.walrus.space",
         epoch,
         indexerCursor: cursor?.value || null,
+        indexer: indexerHealth,   // { ts, ingested, lastEventAt, error }
         explorerUrl: explorer,
     });
 });

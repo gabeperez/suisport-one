@@ -257,6 +257,8 @@
 				DEVELOPMENT_TEAM = FX9AP8JB22;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = SuiSports;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.healthcare-fitness";
 				INFOPLIST_KEY_NSHealthShareUsageDescription = "SuiSport uses Apple Health to count your workouts and turn them into Sweat Points.";
 				INFOPLIST_KEY_NSHealthUpdateUsageDescription = "SuiSport saves workouts you record into Apple Health so you own the data.";
 				INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription = "SuiSport needs to keep tracking your route when the screen is off during a workout.";
@@ -296,6 +298,8 @@
 				DEVELOPMENT_TEAM = FX9AP8JB22;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = SuiSports;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.healthcare-fitness";
 				INFOPLIST_KEY_NSHealthShareUsageDescription = "SuiSport uses Apple Health to count your workouts and turn them into Sweat Points.";
 				INFOPLIST_KEY_NSHealthUpdateUsageDescription = "SuiSport saves workouts you record into Apple Health so you own the data.";
 				INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription = "SuiSport needs to keep tracking your route when the screen is off during a workout.";

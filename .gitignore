@@ -31,3 +31,11 @@ tmp/
 *.log
 .vscode/
 Move.lock
+
+# Sui keys — any 0x<addr>.key file is a Sui private key export
+# from `sui keytool`. Never commit these. Rotate out of the
+# filesystem when you're done with them.
+*.key
+
+# Unrelated projects that landed in the tree
+gemini-chat/

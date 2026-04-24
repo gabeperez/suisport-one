@@ -3,7 +3,22 @@ import SwiftUI
 struct AuthScreen: View {
     @Environment(AppState.self) private var app
     @Environment(\.colorScheme) private var colorScheme
+    @AppStorage("lastAuthProvider") private var lastProviderRaw: String = ""
     @State private var showHowItWorks = false
+    @State private var showAllOptions = false
+
+    private enum Provider: String, CaseIterable {
+        case apple, google, wallet
+    }
+
+    private var lastProvider: Provider? {
+        Provider(rawValue: lastProviderRaw)
+    }
+
+    /// When we know the user's last-used provider, promote only it plus
+    /// a "use a different account" link. When we don't, show all three
+    /// as equal siblings.
+    private var isReturning: Bool { lastProvider != nil && !showAllOptions }
 
     var body: some View {
         OnboardingShell(showsBack: true) {
@@ -11,11 +26,13 @@ struct AuthScreen: View {
                 VStack(alignment: .leading, spacing: Theme.Space.lg) {
                     Spacer().frame(height: Theme.Space.md)
 
-                    Text("Welcome")
+                    Text(isReturning ? "Welcome back" : "Welcome")
                         .font(.displayL)
                         .foregroundStyle(Theme.Color.ink)
 
-                    Text("One tap. No password. No wallet.\nYour points just start adding up.")
+                    Text(isReturning
+                         ? "One tap and you're right back where you left off."
+                         : "One tap. No password. No wallet.\nYour points just start adding up.")
                         .font(.bodyL)
                         .foregroundStyle(Theme.Color.inkSoft)
 
@@ -30,32 +47,22 @@ struct AuthScreen: View {
         } actions: {
             if app.isAuthInFlight {
                 inFlightButton
-            } else {
-                appleSignInButton
-
+            } else if isReturning, let p = lastProvider {
+                primaryButton(for: p)
                 Button {
                     Haptics.tap()
-                    Task { await app.signInWithGoogle() }
+                    withAnimation(Theme.Motion.snap) { showAllOptions = true }
                 } label: {
-                    HStack(spacing: 10) {
-                        Image(systemName: "g.circle.fill")
-                            .font(.system(size: 18, weight: .semibold))
-                        Text("Continue with Google")
-                            .font(.system(size: 17, weight: .semibold, design: .rounded))
-                    }
-                    .foregroundStyle(Theme.Color.ink)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 54)
-                    .background(
-                        RoundedRectangle(cornerRadius: Theme.Radius.pill, style: .continuous)
-                            .fill(Theme.Color.bgElevated)
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: Theme.Radius.pill, style: .continuous)
-                            .strokeBorder(Theme.Color.stroke, lineWidth: 1)
-                    )
+                    Text("Use a different account")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(Theme.Color.inkFaint)
                 }
                 .buttonStyle(.plain)
+                .padding(.top, 4)
+            } else {
+                appleSignInButton
+                googleSignInButton
+                walletSignInButton
 
                 Button {
                     Haptics.tap()
@@ -70,6 +77,73 @@ struct AuthScreen: View {
             }
         }
         .sheet(isPresented: $showHowItWorks) { howItWorksSheet }
+    }
+
+    @ViewBuilder
+    private func primaryButton(for provider: Provider) -> some View {
+        switch provider {
+        case .apple:  appleSignInButton
+        case .google: googleSignInButton
+        case .wallet: walletSignInButton
+        }
+    }
+
+    private var googleSignInButton: some View {
+        Button {
+            Haptics.tap()
+            Task { await app.signInWithGoogle() }
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: "g.circle.fill")
+                    .font(.system(size: 18, weight: .semibold))
+                Text("Continue with Google")
+                    .font(.system(size: 17, weight: .semibold, design: .rounded))
+            }
+            .foregroundStyle(Theme.Color.ink)
+            .frame(maxWidth: .infinity)
+            .frame(height: 54)
+            .background(
+                RoundedRectangle(cornerRadius: Theme.Radius.pill, style: .continuous)
+                    .fill(Theme.Color.bgElevated)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: Theme.Radius.pill, style: .continuous)
+                    .strokeBorder(Theme.Color.stroke, lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var walletSignInButton: some View {
+        Button {
+            Haptics.tap()
+            Task { await app.signInWithWallet() }
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: "wallet.pass.fill")
+                    .font(.system(size: 16, weight: .semibold))
+                Text("Connect Sui Wallet")
+                    .font(.system(size: 17, weight: .semibold, design: .rounded))
+            }
+            .foregroundStyle(.white)
+            .frame(maxWidth: .infinity)
+            .frame(height: 54)
+            .background(
+                Capsule().fill(
+                    LinearGradient(
+                        colors: [
+                            Color(red: 0.30, green: 0.65, blue: 0.95),
+                            Color(red: 0.15, green: 0.45, blue: 0.80),
+                        ],
+                        startPoint: .topLeading, endPoint: .bottomTrailing
+                    )
+                )
+            )
+            .overlay(Capsule().strokeBorder(.white.opacity(0.18), lineWidth: 1))
+            .shadow(color: Color(red: 0.15, green: 0.45, blue: 0.80).opacity(0.35),
+                    radius: 14, y: 6)
+        }
+        .buttonStyle(.plain)
     }
 
     private var inFlightButton: some View {

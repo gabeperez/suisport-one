@@ -45,6 +45,7 @@ final class AppState {
         do {
             let user = try await AuthService.shared.signInWithApple()
             self.currentUser = user
+            UserDefaults.standard.set("apple", forKey: "lastAuthProvider")
             advanceOnboarding()
         } catch AuthService.AuthError.cancelled {
             // silent — user tapped cancel
@@ -59,6 +60,20 @@ final class AppState {
         do {
             let user = try await AuthService.shared.signInWithGoogle()
             self.currentUser = user
+            UserDefaults.standard.set("google", forKey: "lastAuthProvider")
+            advanceOnboarding()
+        } catch {
+            // ignore
+        }
+    }
+
+    func signInWithWallet() async {
+        isAuthInFlight = true
+        defer { isAuthInFlight = false }
+        do {
+            let user = try await AuthService.shared.signInWithWallet()
+            self.currentUser = user
+            UserDefaults.standard.set("wallet", forKey: "lastAuthProvider")
             advanceOnboarding()
         } catch {
             // ignore

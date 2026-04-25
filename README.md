@@ -13,7 +13,7 @@
 | **Cover image** | [`cover.html`](./cover.html) — open in Safari, screenshot the 1200×630 frame |
 | **Live testnet** | Worker: `suisport-api.perez-jg22.workers.dev` · Move package: [`0x15c33f…2b2c`](https://suiscan.xyz/testnet/object/0x15c33f76fba3bc10a327d9792c7948e1eefd0162a13e7a0ac4774d7b8fec2b2c) |
 | **Pitch outline** | [`PITCH.md`](./PITCH.md) (5-min slide-by-slide) |
-| **Repo split context** | [`docs/REPO_SPLIT.md`](./docs/REPO_SPLIT.md) — this is the hackathon fork; the canonical SuiSport stays at [`gabeperez/suisport`](https://github.com/gabeperez/suisport) |
+| **Repo split context** | [`docs/REPO_SPLIT.md`](./docs/REPO_SPLIT.md)
 
 
 SuiSport ONE turns ONE Championship fighters into your training partner. Pick a fighter, run their official fight-week camp inside the app, and prove every session on the Sui blockchain. Apple Watch verifies the workout, Walrus stores the canonical proof, the Move package mints SWEAT rewards and a soulbound trophy from that fighter on completion.
@@ -26,7 +26,7 @@ It's a fan-engagement product the moment ONE wants to ship it, and a real consum
 | Demo day | Wed, April 29, 2026 — Ariake Arena, Tokyo |
 | Track | Fan engagement / athlete tools — built around the live ONE Samurai 1 card |
 | Stack | iOS (SwiftUI) · Cloudflare Workers + D1 + R2 · Walrus · Sui Move (testnet) · Apple App Attest · Enoki zkLogin |
-| Repo | [`gabeperez/suisport-one`](https://github.com/gabeperez/suisport-one) (forked from [`gabeperez/suisport`](https://github.com/gabeperez/suisport) at tag `v0.1-pre-hackathon` — see `docs/REPO_SPLIT.md`) |
+| Repo | [`gabeperez/suisport-one`](https://github.com/gabeperez/suisport-one)
 
 ---
 

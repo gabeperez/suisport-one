@@ -151,6 +151,17 @@ final class HealthKitService {
         case .yoga: return .yoga
         case .highIntensityIntervalTraining: return .hiit
         case .functionalStrengthTraining, .traditionalStrengthTraining, .coreTraining: return .lift
+        // Martial-arts mapping — Apple's HKWorkoutActivityType has
+        // dedicated cases for boxing / kickboxing / wrestling /
+        // martialArts. We collapse boxing + kickboxing into
+        // "striking" because the iOS UI treats them the same way
+        // (the user picked their style on profile setup; here we
+        // care about whether it was a striking session).
+        case .boxing, .kickboxing: return .striking
+        case .wrestling: return .grappling
+        case .martialArts: return .mma
+        case .mixedCardio: return .conditioning
+        case .flexibility, .cooldown, .preparationAndRecovery: return .recovery
         default: return .other
         }
     }

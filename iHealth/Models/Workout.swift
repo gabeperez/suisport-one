@@ -25,7 +25,12 @@ struct Workout: Identifiable, Hashable, Codable {
 }
 
 enum WorkoutType: String, Codable, CaseIterable, Hashable {
-    case run, walk, ride, swim, lift, yoga, hiit, hike, other
+    // Generic activity (kept so prior backfill data still decodes).
+    case run, walk, ride, swim, lift, yoga, hiit, hike
+    // Martial-arts focused — what an ONE Championship fighter actually
+    // logs. Wire-codes 6–10 in the backend `workoutTypeCode()` mirror.
+    case striking, grappling, mma, conditioning, recovery
+    case other
 
     var title: String {
         switch self {
@@ -37,10 +42,18 @@ enum WorkoutType: String, Codable, CaseIterable, Hashable {
         case .yoga: return "Yoga"
         case .hiit: return "HIIT"
         case .hike: return "Hike"
+        case .striking: return "Striking"
+        case .grappling: return "Grappling"
+        case .mma: return "MMA"
+        case .conditioning: return "Conditioning"
+        case .recovery: return "Recovery"
         case .other: return "Workout"
         }
     }
 
+    /// SF Symbol. Boxing / wrestling / martial-arts symbols ship from
+    /// iOS 17. The fallback `figure.cross.training` is a safe pick for
+    /// older sims.
     var icon: String {
         switch self {
         case .run: return "figure.run"
@@ -51,7 +64,24 @@ enum WorkoutType: String, Codable, CaseIterable, Hashable {
         case .yoga: return "figure.yoga"
         case .hiit: return "bolt.heart.fill"
         case .hike: return "figure.hiking"
+        case .striking: return "figure.boxing"
+        case .grappling: return "figure.wrestling"
+        case .mma: return "figure.martial.arts"
+        case .conditioning: return "figure.cross.training"
+        case .recovery: return "figure.flexibility"
         case .other: return "figure.mixed.cardio"
+        }
+    }
+
+    /// True when the type is fight-camp adjacent. Used to filter the
+    /// ONE-flavored UI (challenges, leaderboards) so a runner doesn't
+    /// drown out the martial-arts narrative.
+    var isFightCamp: Bool {
+        switch self {
+        case .striking, .grappling, .mma, .conditioning, .recovery:
+            return true
+        default:
+            return false
         }
     }
 }

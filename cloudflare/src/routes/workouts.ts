@@ -205,18 +205,28 @@ workouts.get("/:id/onchain", async (c) => {
 
 // ---------- helpers ----------
 
+/// Maps the iOS WorkoutType raw value to the u8 the Move contract
+/// expects. Codes 0–7 are pre-pivot generic activities; 8–12 are
+/// martial-arts categories added for the SuiSport ONE pivot. Keep
+/// this table in sync with:
+///   iHealth/Models/Workout.swift  (WorkoutType enum)
+///   cloudflare/src/onchain_retry.ts (the retry-path mirror)
 function workoutTypeCode(t: string): number {
-    // Contract uses u8 codes matching the Move enum ordering.
     switch (t) {
-        case "run":  return 0;
-        case "walk": return 1;
-        case "ride": return 2;
-        case "hike": return 3;
-        case "swim": return 4;
-        case "lift": return 5;
-        case "yoga": return 6;
-        case "hiit": return 7;
-        default:     return 255;
+        case "run":          return 0;
+        case "walk":         return 1;
+        case "ride":         return 2;
+        case "hike":         return 3;
+        case "swim":         return 4;
+        case "lift":         return 5;
+        case "yoga":         return 6;
+        case "hiit":         return 7;
+        case "striking":     return 8;
+        case "grappling":    return 9;
+        case "mma":          return 10;
+        case "conditioning": return 11;
+        case "recovery":     return 12;
+        default:             return 255;
     }
 }
 

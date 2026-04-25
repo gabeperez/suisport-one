@@ -146,13 +146,25 @@ export async function retryPendingWorkoutsTick(env: Env): Promise<RetryTickResul
     };
 }
 
+/// Mirror of routes/workouts.ts:workoutTypeCode. Keep both tables
+/// in lockstep — divergence means the reconciler retries with a
+/// different u8 than the user's original POST and breaks the
+/// canonical workout digest.
 function workoutTypeCode(t: string): number {
     switch (t) {
-        case "run":  return 0;
-        case "walk": return 1;
-        case "ride": return 2;
-        case "hike": return 3;
-        case "swim": return 4;
-        default:      return 5;
+        case "run":          return 0;
+        case "walk":         return 1;
+        case "ride":         return 2;
+        case "hike":         return 3;
+        case "swim":         return 4;
+        case "lift":         return 5;
+        case "yoga":         return 6;
+        case "hiit":         return 7;
+        case "striking":     return 8;
+        case "grappling":    return 9;
+        case "mma":          return 10;
+        case "conditioning": return 11;
+        case "recovery":     return 12;
+        default:             return 255;
     }
 }

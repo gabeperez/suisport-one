@@ -167,9 +167,27 @@ struct AuthScreen: View {
     }
 
     private var inFlightButton: some View {
-        PrimaryButton(title: "Setting things up…", isLoading: true,
-                      tint: Theme.Color.ink, fg: Theme.Color.inkInverse) {}
-            .shimmer()
+        VStack(spacing: 8) {
+            PrimaryButton(title: "Setting things up…", isLoading: true,
+                          tint: Theme.Color.ink, fg: Theme.Color.inkInverse) {}
+                .shimmer()
+            // Escape hatch — wallet sign-in via Slush can stall (Slush
+            // mobile's in-app browser doesn't always auto-inject the
+            // wallet). The 2-minute fallback timeout would still
+            // recover, but a manual cancel makes the demo recoverable
+            // in seconds.
+            Button {
+                Haptics.tap()
+                WalletConnectBridge.shared.cancelPending()
+            } label: {
+                Text("Cancel")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Theme.Color.inkFaint)
+                    .underline()
+            }
+            .buttonStyle(.plain)
+            .padding(.top, 2)
+        }
     }
 
     /// HIG-styled Sign in with Apple button. Uses our own `AuthService` flow.

@@ -142,6 +142,15 @@ final class WalletConnectBridge {
         resolve(challengeId: challengeId, result: .failure(Timeout()))
     }
 
+    /// User-initiated cancel — surfaces a Cancel button on the auth
+    /// spinner so a stalled Slush round-trip doesn't trap the user
+    /// for the full 2-minute fallback timeout. No-op if there's no
+    /// pending sign-in.
+    func cancelPending() {
+        guard let p = pending else { return }
+        resolve(challengeId: p.challengeId, result: .failure(Cancelled()))
+    }
+
     struct Cancelled: Error {}
     struct Timeout: Error {}
 

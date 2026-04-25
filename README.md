@@ -11,7 +11,7 @@
 | **GitHub** | [`gabeperez/suisport-one`](https://github.com/gabeperez/suisport-one) |
 | **Demo video** | _(speed-run script in [`DEMO_SPEEDRUN.md`](./DEMO_SPEEDRUN.md); upload URL added before submission)_ |
 | **Cover image** | [`cover.html`](./cover.html) — open in Safari, screenshot the 1200×630 frame |
-| **Live testnet** | Worker: `suisport-api.perez-jg22.workers.dev` · Move package on Sui testnet: `0x966699…b452b` |
+| **Live testnet** | Worker: `suisport-api.perez-jg22.workers.dev` · Move package: [`0x15c33f…2b2c`](https://suiscan.xyz/testnet/object/0x15c33f76fba3bc10a327d9792c7948e1eefd0162a13e7a0ac4774d7b8fec2b2c) |
 | **Pitch outline** | [`PITCH.md`](./PITCH.md) (5-min slide-by-slide) |
 | **Repo split context** | [`docs/REPO_SPLIT.md`](./docs/REPO_SPLIT.md) — this is the hackathon fork; the canonical SuiSport stays at [`gabeperez/suisport`](https://github.com/gabeperez/suisport) |
 
@@ -64,7 +64,7 @@ There's no wallet to install (Enoki zkLogin signs you in with Apple or Google), 
 ### On-chain (`move/suisport/`)
 - Sui Move package (testnet) with modules: `user_profile`, `workout_registry`, `rewards_engine`, `sweat`, `challenges`, `admin`, `version`
 - Operator + Oracle separation — operator pays gas + owns user profile objects, oracle signs attestation digests the contract verifies. Compromise of one keypair doesn't drain the other
-- Package: `0x966699ee60fdb9e1a308d5d3c0da28fe10ed90ce870fa43a97ff74544b3b452b` (testnet)
+- Package: `0x15c33f76fba3bc10a327d9792c7948e1eefd0162a13e7a0ac4774d7b8fec2b2c` (testnet)
 
 ### Infra
 - Worker: `https://suisport-api.perez-jg22.workers.dev`

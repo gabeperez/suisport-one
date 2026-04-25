@@ -968,6 +968,15 @@ private extension SocialDataService {
     }
 
     static func seedSegments(others: [Athlete]) -> [Segment] {
+        // Segments need at least one athlete to populate leaderboard
+        // entries; bail with nothing rather than crash on the indexing
+        // below if the roster has been wiped.
+        guard !others.isEmpty else { return [] }
+        // Hardcoded picks (kom/qom/legend slots) were originally tuned
+        // to a 12-athlete roster. The ONE roster is shorter, so wrap
+        // any index past the end back into range — keeps the seed
+        // resilient if seedAthletes() grows or shrinks again.
+        func at(_ i: Int) -> Athlete { others[i % others.count] }
         func entry(_ a: Athlete, _ secs: Int) -> LeaderboardEntry {
             LeaderboardEntry(id: UUID(), athlete: a, timeSeconds: secs, attempts: Int.random(in: 1...22),
                              achievedAt: Date().addingTimeInterval(-Double.random(in: 1_000...3_000_000)))
@@ -981,32 +990,32 @@ private extension SocialDataService {
                     location: "Brooklyn, NY",
                     distanceMeters: 5320, elevationGainM: 58, avgGradePct: 1.2,
                     totalAttempts: 184_402, athleteCount: 21_811,
-                    kom: entry(others[2], 872), qom: entry(others[6], 942),
-                    localLegend: legend(others[0]),
-                    myBest: entry(others[3], 1160), myRank: 2_221,
+                    kom: entry(at(2), 872), qom: entry(at(6), 942),
+                    localLegend: legend(at(0)),
+                    myBest: entry(at(3), 1160), myRank: 2_221,
                     starred: true, surface: .road, heroTone: .forest),
             Segment(id: UUID(), name: "Manhattan Bridge Climb",
                     location: "New York, NY",
                     distanceMeters: 720, elevationGainM: 33, avgGradePct: 4.6,
                     totalAttempts: 92_208, athleteCount: 18_442,
-                    kom: entry(others[8], 126), qom: entry(others[10], 141),
-                    localLegend: legend(others[4]),
-                    myBest: entry(others[3], 172), myRank: 812,
+                    kom: entry(at(8), 126), qom: entry(at(10), 141),
+                    localLegend: legend(at(4)),
+                    myBest: entry(at(3), 172), myRank: 812,
                     starred: false, surface: .road, heroTone: .slate),
             Segment(id: UUID(), name: "Rockaway Flats TT",
                     location: "Queens, NY",
                     distanceMeters: 10_000, elevationGainM: 0, avgGradePct: 0,
                     totalAttempts: 12_420, athleteCount: 3_228,
-                    kom: entry(others[8], 1482), qom: entry(others[11], 1604),
-                    localLegend: legend(others[1]),
+                    kom: entry(at(8), 1482), qom: entry(at(11), 1604),
+                    localLegend: legend(at(1)),
                     myBest: nil, myRank: nil,
                     starred: false, surface: .road, heroTone: .ocean),
             Segment(id: UUID(), name: "Bear Mountain Main",
                     location: "Hudson Valley, NY",
                     distanceMeters: 2400, elevationGainM: 210, avgGradePct: 8.8,
                     totalAttempts: 8_110, athleteCount: 2_088,
-                    kom: entry(others[0], 518), qom: entry(others[6], 572),
-                    localLegend: legend(others[7]),
+                    kom: entry(at(0), 518), qom: entry(at(6), 572),
+                    localLegend: legend(at(7)),
                     myBest: nil, myRank: nil,
                     starred: true, surface: .trail, heroTone: .ember)
         ]

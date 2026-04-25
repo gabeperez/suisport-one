@@ -38,7 +38,12 @@ social.get("/athletes/:id", async (c) => {
 });
 
 social.get("/me", async (c) => {
-    const id = c.get("athleteId") ?? "0xdemo_me";
+    // Demo-identity fallback only outside production — see
+    // docs/MAINNET_AUDIT.md §2. On mainnet a missing session
+    // returns 401 instead of resolving to a demo athlete.
+    const id = c.get("athleteId")
+        ?? (c.env.ENVIRONMENT !== "production" ? "0xdemo_me" : null);
+    if (!id) return c.json({ error: "unauthorized" }, 401);
     const row = await c.env.DB.prepare("SELECT * FROM athletes WHERE id = ?")
         .bind(id).first<AthleteRow>();
     if (!row) return c.json({ error: "not_found" }, 404);
@@ -418,8 +423,13 @@ social.get("/clubs", async (c) => {
     } else if (filter === "brands") {
         sql = `SELECT * FROM clubs WHERE is_verified_brand = 1`;
     }
+    // Demo-identity fallback only outside production. On mainnet,
+    // requesting joined clubs without a session resolves to no
+    // athlete and the JOIN returns nothing (intentional).
+    const meId = c.get("athleteId")
+        ?? (c.env.ENVIRONMENT !== "production" ? "0xdemo_me" : "");
     const stmt = filter === "joined"
-        ? c.env.DB.prepare(sql).bind(c.get("athleteId") ?? "0xdemo_me")
+        ? c.env.DB.prepare(sql).bind(meId)
         : c.env.DB.prepare(sql);
     const rows = await stmt.all<ClubRow>();
     return c.json({ clubs: rows.results.map(clubDTO) });

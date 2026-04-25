@@ -17,10 +17,11 @@ export async function sessionMiddleware(
         ).bind(token).first<{ sui_address: string }>();
         if (row) c.set("athleteId", row.sui_address);
     }
-    // Dev-only fallback for curl smoke tests. Remove in prod.
-    // Accept `0xdemo_*` seeds OR a full 64-hex-char Sui address so we
-    // can hit /v1/workouts with a real on-chain identity while testing.
-    if (!c.get("athleteId")) {
+    // Dev-only fallback for curl smoke tests. Hard-disabled when
+    // ENVIRONMENT === "production" so a misconfigured mainnet deploy
+    // cannot authenticate as anyone via a query param. Resolves the
+    // BLOCKER flagged in docs/MAINNET_AUDIT.md §2.
+    if (c.env.ENVIRONMENT !== "production" && !c.get("athleteId")) {
         const q = c.req.query("athleteId");
         if (q && (q.startsWith("0xdemo_") || /^0x[a-fA-F0-9]{64}$/.test(q))) {
             c.set("athleteId", q);
@@ -37,12 +38,28 @@ export function requireAthlete(
     return id;
 }
 
+/// Constant-time string compare. Plain `===` on a secret leaks length
+/// + per-byte timing under remote-timing attacks; this version always
+/// walks the longer of the two strings and OR-folds the differences.
+function timingSafeEqual(a: string, b: string): boolean {
+    const len = Math.max(a.length, b.length);
+    let diff = a.length ^ b.length;
+    for (let i = 0; i < len; i++) {
+        const ca = i < a.length ? a.charCodeAt(i) : 0;
+        const cb = i < b.length ? b.charCodeAt(i) : 0;
+        diff |= ca ^ cb;
+    }
+    return diff === 0;
+}
+
 export async function adminGuard(
     c: Context<{ Bindings: Env; Variables: Variables }>,
     next: Next
 ) {
-    const token = c.req.header("X-Admin-Token");
-    if (token !== c.env.ADMIN_TOKEN) {
+    const token = c.req.header("X-Admin-Token") ?? "";
+    const expected = c.env.ADMIN_TOKEN ?? "";
+    // Constant-time compare — see helper above. Audit §9.
+    if (!expected || !timingSafeEqual(token, expected)) {
         return c.json({ error: "forbidden" }, 403);
     }
     c.set("isAdmin", true);

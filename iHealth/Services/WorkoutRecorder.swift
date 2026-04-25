@@ -140,7 +140,16 @@ final class WorkoutRecorder {
         case .yoga: return .yoga
         case .hiit: return .highIntensityIntervalTraining
         case .lift: return .traditionalStrengthTraining
-        case .other: return .other
+        // Fight-camp types — Apple HealthKit has dedicated cases for
+        // every one. Mapping is the inverse of HealthKitService.mapType
+        // so a session recorded here round-trips correctly when the
+        // backfill picks it up later.
+        case .striking:     return .boxing
+        case .grappling:    return .wrestling
+        case .mma:          return .martialArts
+        case .conditioning: return .mixedCardio
+        case .recovery:     return .flexibility
+        case .other:        return .other
         }
     }
 

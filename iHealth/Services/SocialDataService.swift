@@ -566,8 +566,8 @@ private extension SocialDataService {
         //
         // Bios + records cross-checked against onefc.com athlete pages
         // and Sherdog/Tapology where ONE's page didn't surface a
-        // canonical record (sources documented in
-        // docs/REPO_SPLIT.md and the README).
+        // public record. Sources cited in the README brand &
+        // licensing section.
         //
         // photoURL hotlinks ONE's public CDN. ONE Championship's content
         // syndication doc explicitly invites direct embedding from

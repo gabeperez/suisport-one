@@ -9,7 +9,7 @@ The audit pass that produced the punch list lives below in `docs/MAINNET_AUDIT.m
 ## Phase 0 — pre-migration sanity (do this 1 week before)
 
 - [ ] Confirm no testnet-only code paths remain (see Audit Tier 🔴)
-- [ ] Lock the canonical SuiSport ONE branding — bundle id, app icon, App Store screenshots
+- [ ] Lock the SuiSport ONE branding — bundle id, app icon, App Store screenshots
 - [ ] Commission a security review of the Move package (oracle digest construction, replay protection, version-object upgrade behavior)
 - [ ] Decide on the **operator key custody** — KMS / Turnkey / hardware HSM. Cloudflare wrangler-secrets-only is acceptable for testnet but not for a production reward minter
 - [ ] Sign a contract with at least 2 commercial Walrus publisher endpoints + 1 commercial Sui RPC provider (Mysten + a backup)
@@ -115,9 +115,9 @@ After all secrets are set:
 wrangler deploy
 ```
 
-## Phase 4 — D1 / R2 fork
+## Phase 4 — D1 / R2 split
 
-The hackathon backend is shared with the canonical SuiSport. **Do not** point mainnet at the same D1 — testnet demo rows would pollute the prod ledger.
+**Do not** point mainnet at the existing testnet D1 — testnet demo rows would pollute the prod ledger.
 
 ```bash
 # 1. Create a new D1 + R2 for prod

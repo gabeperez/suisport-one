@@ -111,7 +111,7 @@ Photo: ONE Championship.
 **Don't:**
 - Use stock motion graphics or templated outros. The app's gradients + ONE-red palette is the entire look.
 - Rush the on-chain step. The pipeline screen is the most novel thing in the demo — let it breathe.
-- Show any "SuiSport" string without " ONE" after it. (If you spot one, message me — see `docs/REPO_SPLIT.md` for what's still on the canonical brand.)
+- Show any "SuiSport" string without " ONE" after it. If you spot one, flag it — the brand is "SuiSport ONE" everywhere user-visible.
 
 **Do:**
 - Record in airplane mode + connect to a local hotspot — gives clean network indicator + full battery in the status bar.

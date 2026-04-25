@@ -1,6 +1,6 @@
 # Mainnet readiness audit
 
-Run on 2026-04-25 against commit `2a112fb` of the SuiSport ONE fork.
+Run on 2026-04-25 against commit `2a112fb` of the SuiSport ONE codebase.
 
 This is the *what could go wrong* doc. The migration recipe is at [`MAINNET_MIGRATION.md`](./MAINNET_MIGRATION.md).
 

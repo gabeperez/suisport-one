@@ -5,6 +5,7 @@ struct AthleteProfileView: View {
     @Environment(SocialDataService.self) private var social
     @State private var isFollowing: Bool = false
     @State private var selectedItem: FeedItem?
+    @State private var selectedChallenge: Challenge?
     @State private var showEdit = false
     @State private var showShare = false
 
@@ -21,6 +22,7 @@ struct AthleteProfileView: View {
                     stats(a)
                     actionRow(a)
                     segmentsBadges(a)
+                    programsSection(a)
                     trophiesPreview
                     recentActivities
                     Color.clear.frame(height: 80)
@@ -35,6 +37,9 @@ struct AthleteProfileView: View {
         .navigationBarTitleDisplayMode(.inline)
         .navigationDestination(item: $selectedItem) { item in
             WorkoutDetailView(feedItemId: item.id)
+        }
+        .navigationDestination(item: $selectedChallenge) { c in
+            ChallengeDetailView(challengeId: c.id)
         }
         .sheet(isPresented: $showEdit) { EditProfileSheet() }
         .sheet(isPresented: $showShare) {
@@ -254,6 +259,114 @@ struct AthleteProfileView: View {
         .frame(maxWidth: .infinity)
         .padding(.vertical, 10)
         .background(RoundedRectangle(cornerRadius: Theme.Radius.md).fill(Theme.Color.bgElevated))
+    }
+
+    // MARK: - Programs designed by this fighter
+    //
+    // The headline mechanic of SuiSport ONE — "tap a fighter, run
+    // their camp." If the athlete is a registered ONE fighter their
+    // designed camps from social.challenges show as a horizontal
+    // carousel here, each tappable straight into ChallengeDetail.
+    // Hidden when no programs are designed by this athlete (e.g.
+    // when looking at a regular fan's profile).
+
+    @ViewBuilder
+    private func programsSection(_ a: Athlete) -> some View {
+        let programs = social.challenges.filter { $0.designerHandle == a.handle }
+        if !programs.isEmpty {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack {
+                    Text("Train with \(a.displayName.split(separator: " ").first.map(String.init) ?? a.displayName)")
+                        .font(.titleM).foregroundStyle(Theme.Color.ink)
+                    Spacer()
+                    Text("\(programs.count) \(programs.count == 1 ? "camp" : "camps")")
+                        .font(.system(size: 11, weight: .semibold, design: .rounded))
+                        .foregroundStyle(Theme.Color.inkFaint)
+                }
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 10) {
+                        ForEach(programs) { c in
+                            programCard(c, designer: a)
+                                .onTapGesture {
+                                    Haptics.tap()
+                                    selectedChallenge = c
+                                }
+                        }
+                    }
+                    .padding(.horizontal, 2)
+                }
+            }
+            .padding(.top, Theme.Space.sm)
+        }
+    }
+
+    private func programCard(_ c: Challenge, designer: Athlete) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            // Hero block
+            ZStack(alignment: .topLeading) {
+                RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous)
+                    .fill(designer.avatarTone.gradient)
+                    .frame(height: 96)
+                Image(systemName: c.badgeIcon)
+                    .font(.system(size: 30, weight: .bold))
+                    .foregroundStyle(.white.opacity(0.9))
+                    .padding(12)
+                if c.isJoined {
+                    Text("Joined")
+                        .font(.system(size: 9, weight: .heavy, design: .rounded))
+                        .tracking(0.12)
+                        .foregroundStyle(.black.opacity(0.85))
+                        .padding(.horizontal, 7).padding(.vertical, 3)
+                        .background(Capsule().fill(.white.opacity(0.95)))
+                        .padding(10)
+                        .frame(maxWidth: .infinity, alignment: .topTrailing)
+                }
+            }
+            // Title + goal
+            VStack(alignment: .leading, spacing: 2) {
+                Text(c.title)
+                    .font(.system(size: 14, weight: .bold, design: .rounded))
+                    .foregroundStyle(Theme.Color.ink)
+                    .lineLimit(1)
+                Text("\(Int(c.goal.target)) \(c.goal.unit)")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(Theme.Color.inkSoft)
+            }
+            // Progress (if joined) or participants (if not)
+            if c.isJoined {
+                progressMini(c.currentProgress)
+            } else {
+                Text("\(c.participants.formatted(.number.notation(.compactName))) training")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(Theme.Color.inkFaint)
+            }
+        }
+        .frame(width: 200)
+        .padding(10)
+        .background(
+            RoundedRectangle(cornerRadius: Theme.Radius.lg, style: .continuous)
+                .fill(Theme.Color.bgElevated)
+        )
+    }
+
+    private func progressMini(_ pct: Double) -> some View {
+        let p = max(0, min(pct, 1.0))
+        return VStack(alignment: .leading, spacing: 4) {
+            GeometryReader { geo in
+                ZStack(alignment: .leading) {
+                    Capsule().fill(Theme.Color.stroke.opacity(0.5))
+                    Capsule()
+                        .fill(LinearGradient(colors: [
+                            Theme.Color.accent, Theme.Color.accentDeep
+                        ], startPoint: .leading, endPoint: .trailing))
+                        .frame(width: geo.size.width * p)
+                }
+            }
+            .frame(height: 4)
+            Text("\(Int(p * 100))% complete")
+                .font(.system(size: 10, weight: .semibold, design: .rounded))
+                .foregroundStyle(Theme.Color.accentDeep)
+        }
     }
 
     // MARK: - Trophies preview

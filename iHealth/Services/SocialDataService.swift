@@ -889,7 +889,10 @@ private extension SocialDataService {
                 currentProgress: 0.0,
                 startsAt: minus(2), endsAt: plus(5),
                 stakeSweat: 100, prizePoolSweat: 250_000, participants: 8_412,
-                isJoined: true, hero: .ember, badgeIcon: "trophy.fill"
+                isJoined: true, hero: .ember, badgeIcon: "trophy.fill",
+                designerHandle: nil,
+                trophyTitle: "Samurai 1 Fight Week Trophy",
+                myRank: 1_204
             ),
             Challenge(
                 id: UUID(), title: "Wakamatsu Pressure Camp",
@@ -900,7 +903,10 @@ private extension SocialDataService {
                 currentProgress: 0.30,
                 startsAt: minus(7), endsAt: plus(14),
                 stakeSweat: 50, prizePoolSweat: 88_000, participants: 2_104,
-                isJoined: true, hero: .ember, badgeIcon: "figure.boxing"
+                isJoined: true, hero: .ember, badgeIcon: "figure.boxing",
+                designerHandle: "yuya_wakamatsu",
+                trophyTitle: "Yuya Pressure Camp Trophy",
+                myRank: 312
             ),
             Challenge(
                 id: UUID(), title: "Takeru Krusher 14",
@@ -911,7 +917,10 @@ private extension SocialDataService {
                 currentProgress: 0.0,
                 startsAt: plus(1), endsAt: plus(15),
                 stakeSweat: 75, prizePoolSweat: 142_000, participants: 3_988,
-                isJoined: false, hero: .grape, badgeIcon: "bolt.heart.fill"
+                isJoined: false, hero: .grape, badgeIcon: "bolt.heart.fill",
+                designerHandle: "k1takeru",
+                trophyTitle: "Takeru Krusher Trophy",
+                myRank: nil
             ),
             Challenge(
                 id: UUID(), title: "Ayaka Submission Block",
@@ -922,7 +931,10 @@ private extension SocialDataService {
                 currentProgress: 0.16,
                 startsAt: minus(5), endsAt: plus(16),
                 stakeSweat: 40, prizePoolSweat: 64_500, participants: 1_482,
-                isJoined: false, hero: .rose, badgeIcon: "figure.wrestling"
+                isJoined: false, hero: .rose, badgeIcon: "figure.wrestling",
+                designerHandle: "ayaka_zombie",
+                trophyTitle: "Ayaka Lock Trophy",
+                myRank: nil
             ),
             Challenge(
                 id: UUID(), title: "Nadaka Lumpinee Mile",
@@ -933,7 +945,10 @@ private extension SocialDataService {
                 currentProgress: 0.07,
                 startsAt: minus(3), endsAt: plus(27),
                 stakeSweat: 60, prizePoolSweat: 96_400, participants: 1_812,
-                isJoined: false, hero: .sunset, badgeIcon: "figure.martial.arts"
+                isJoined: false, hero: .sunset, badgeIcon: "figure.martial.arts",
+                designerHandle: "nadaka",
+                trophyTitle: "Lumpinee Mile Trophy",
+                myRank: nil
             ),
             Challenge(
                 id: UUID(), title: "Roadwork Streak",
@@ -944,7 +959,10 @@ private extension SocialDataService {
                 currentProgress: 0.71,
                 startsAt: minus(5), endsAt: plus(2),
                 stakeSweat: 25, prizePoolSweat: 18_240, participants: 3_221,
-                isJoined: true, hero: .ocean, badgeIcon: "flame.fill"
+                isJoined: true, hero: .ocean, badgeIcon: "flame.fill",
+                designerHandle: nil,
+                trophyTitle: "Roadwork Streak Trophy",
+                myRank: 488
             ),
         ]
     }

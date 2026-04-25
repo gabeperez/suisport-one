@@ -16,6 +16,19 @@ struct Challenge: Identifiable, Hashable {
     var isJoined: Bool
     var hero: AvatarTone
     var badgeIcon: String            // SF Symbol
+    /// Handle of the ONE fighter who designed this camp, e.g.
+    /// "yuya_wakamatsu". Resolves to an Athlete via
+    /// SocialDataService.athletes for the back-link from
+    /// ChallengeDetailView → fighter profile and the forward-link
+    /// from AthleteProfileView → "this fighter's camps."
+    var designerHandle: String? = nil
+    /// Headline of the trophy a participant mints on completion.
+    /// e.g. "Yuya Pressure Camp Trophy". Soulbound to the user's
+    /// UserProfile object on Sui.
+    var trophyTitle: String? = nil
+    /// User's current rank on the camp leaderboard (1-indexed). nil
+    /// when we don't have a rank yet (haven't joined / no progress).
+    var myRank: Int? = nil
 }
 
 enum ChallengeKind: String, Hashable, Codable {

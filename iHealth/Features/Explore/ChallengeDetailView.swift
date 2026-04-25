@@ -4,9 +4,19 @@ struct ChallengeDetailView: View {
     let challengeId: UUID
     @Environment(SocialDataService.self) private var social
     @State private var confirmJoin = false
+    @State private var selectedAthlete: Athlete?
 
     private var challenge: Challenge? {
         social.challenges.first(where: { $0.id == challengeId })
+    }
+
+    /// Resolves the camp's designer (a registered ONE fighter) by
+    /// matching `Challenge.designerHandle` against the seeded
+    /// athlete roster. nil for camps with no designer (Roadwork
+    /// Streak, ONE Samurai Fight Week — those are league-level).
+    private var designer: Athlete? {
+        guard let h = challenge?.designerHandle else { return nil }
+        return social.athletes.first { $0.handle == h }
     }
 
     var body: some View {
@@ -14,10 +24,12 @@ struct ChallengeDetailView: View {
             if let c = challenge {
                 VStack(spacing: Theme.Space.md) {
                     hero(c)
+                    designerStrip(c)
                     stakeBanner(c)
                     progress(c)
+                    trophyPreview(c)
                     rewards(c)
-                    leaders
+                    leaders(c)
                     Color.clear.frame(height: 120)
                 }
                 .padding(.horizontal, Theme.Space.md)
@@ -27,6 +39,9 @@ struct ChallengeDetailView: View {
         }
         .background(Theme.Color.bg.ignoresSafeArea())
         .navigationBarTitleDisplayMode(.inline)
+        .navigationDestination(item: $selectedAthlete) { a in
+            AthleteProfileView(athleteId: a.id)
+        }
         .safeAreaInset(edge: .bottom) {
             if let c = challenge { bottomCTA(c) }
         }
@@ -39,6 +54,127 @@ struct ChallengeDetailView: View {
         } message: { c in
             Text("You'll stake \(c.stakeSweat) Sweat. If you complete the challenge you keep your stake and share the prize pool. If you don't, your stake goes to the pot.")
         }
+    }
+
+    // MARK: - Designer strip
+    //
+    // The single most demo-important link in the app: this camp was
+    // designed by a real ONE fighter, and tapping the row jumps to
+    // their profile. Hidden when designer is nil (league-level camps).
+
+    @ViewBuilder
+    private func designerStrip(_ c: Challenge) -> some View {
+        if let d = designer {
+            Button {
+                Haptics.tap()
+                selectedAthlete = d
+            } label: {
+                HStack(spacing: 12) {
+                    AthleteAvatar(athlete: d, size: 44)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("DESIGNED BY")
+                            .font(.system(size: 10, weight: .heavy, design: .rounded))
+                            .tracking(0.16)
+                            .foregroundStyle(Theme.Color.inkFaint)
+                        HStack(spacing: 4) {
+                            Text(d.displayName)
+                                .font(.system(size: 15, weight: .bold, design: .rounded))
+                                .foregroundStyle(Theme.Color.ink)
+                            if d.verified {
+                                Image(systemName: "checkmark.seal.fill")
+                                    .font(.system(size: 11, weight: .bold))
+                                    .foregroundStyle(Theme.Color.sky)
+                            }
+                        }
+                        if let bio = d.bio?.split(separator: ".").first {
+                            Text(String(bio))
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundStyle(Theme.Color.inkSoft)
+                                .lineLimit(1)
+                        }
+                    }
+                    Spacer()
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundStyle(Theme.Color.inkFaint)
+                }
+                .padding(Theme.Space.md)
+                .background(
+                    RoundedRectangle(cornerRadius: Theme.Radius.lg, style: .continuous)
+                        .fill(Theme.Color.bgElevated)
+                )
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    // MARK: - Trophy preview
+    //
+    // The "what you'll mint" block. Soulbound NFT on the user's Sui
+    // UserProfile object; design baked from the fighter's avatar tone
+    // so each camp's trophy looks distinct + named after the fighter.
+    // Replaces the generic "Finisher trophy" item that used to live
+    // in the Rewards block.
+
+    @ViewBuilder
+    private func trophyPreview(_ c: Challenge) -> some View {
+        let title = c.trophyTitle ?? "Camp Finisher Trophy"
+        let tone = (designer?.avatarTone ?? c.hero)
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("What you'll mint")
+                    .font(.titleM).foregroundStyle(Theme.Color.ink)
+                Spacer()
+                Text("SOULBOUND")
+                    .font(.system(size: 10, weight: .heavy, design: .rounded))
+                    .tracking(0.14)
+                    .foregroundStyle(Theme.Color.gold)
+                    .padding(.horizontal, 8).padding(.vertical, 4)
+                    .background(Capsule().fill(Theme.Color.gold.opacity(0.12)))
+                    .overlay(Capsule().strokeBorder(Theme.Color.gold.opacity(0.4), lineWidth: 1))
+            }
+            HStack(spacing: 14) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .fill(tone.gradient)
+                        .frame(width: 84, height: 84)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                .strokeBorder(.white.opacity(0.25), lineWidth: 1)
+                        )
+                    Image(systemName: c.badgeIcon)
+                        .font(.system(size: 34, weight: .bold))
+                        .foregroundStyle(.white)
+                        .shadow(color: .black.opacity(0.18), radius: 2, y: 1)
+                }
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(title)
+                        .font(.system(size: 15, weight: .bold, design: .rounded))
+                        .foregroundStyle(Theme.Color.ink)
+                    if let d = designer {
+                        Text("Signed by @\(d.handle) on completion")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(Theme.Color.inkSoft)
+                    } else {
+                        Text("Mints to your Sui UserProfile on completion")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(Theme.Color.inkSoft)
+                    }
+                    HStack(spacing: 6) {
+                        Image(systemName: "lock.fill")
+                            .font(.system(size: 10, weight: .bold))
+                            .foregroundStyle(Theme.Color.inkFaint)
+                        Text("Cannot be transferred or sold")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(Theme.Color.inkFaint)
+                    }
+                    .padding(.top, 2)
+                }
+                Spacer()
+            }
+        }
+        .padding(Theme.Space.md)
+        .background(RoundedRectangle(cornerRadius: Theme.Radius.lg).fill(Theme.Color.bgElevated))
     }
 
     // MARK: - Hero
@@ -143,16 +279,16 @@ struct ChallengeDetailView: View {
 
     // MARK: - Rewards
 
+    /// Rewards beyond the trophy. Trophy lives in `trophyPreview`;
+    /// this is for SWEAT pool + sponsor drops.
     private func rewards(_ c: Challenge) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Rewards")
+            Text("Plus")
                 .font(.titleM).foregroundStyle(Theme.Color.ink)
-            reward(icon: "trophy.fill", title: "Finisher trophy", body: "Soulbound NFT on your Sui profile.",
-                   tint: Theme.Color.gold)
             if c.prizePoolSweat > 0 {
                 reward(icon: "bolt.heart.fill",
                        title: "\(c.prizePoolSweat.formatted(.number.notation(.compactName))) Sweat pool",
-                       body: "Split among finishers, weighted by completion.",
+                       body: "Split among finishers, weighted by completion. Minted by rewards_engine on Sui.",
                        tint: Theme.Color.hot)
             }
             if let s = c.sponsor {
@@ -181,12 +317,40 @@ struct ChallengeDetailView: View {
         }
     }
 
-    // MARK: - Leaders
+    // MARK: - Leaderboard with rank
 
-    private var leaders: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Leaders").font(.titleM).foregroundStyle(Theme.Color.ink)
-            ForEach(Array(social.athletes.prefix(6).enumerated()), id: \.offset) { idx, a in
+    /// "Stack up" framing — leads with the user's own rank, then the
+    /// top of the leaderboard. Rank is read from `Challenge.myRank`
+    /// (set on the seed; in production read from the aggregator).
+    /// Mock leaderboard percentages are deterministic per athlete id
+    /// so the same fighters don't get random new rankings on every
+    /// re-render.
+    private func leaders(_ c: Challenge) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            // Header row — your rank is the headline, total
+            // participants the supporting stat.
+            HStack(alignment: .firstTextBaseline) {
+                Text("Stack up")
+                    .font(.titleM).foregroundStyle(Theme.Color.ink)
+                Spacer()
+                if let r = c.myRank {
+                    let percentile = max(1, Int(Double(r) / Double(max(1, c.participants)) * 100))
+                    Text("Top \(percentile)%")
+                        .font(.system(size: 11, weight: .heavy, design: .rounded))
+                        .tracking(0.12)
+                        .foregroundStyle(Theme.Color.accentDeep)
+                        .padding(.horizontal, 8).padding(.vertical, 3)
+                        .background(Capsule().fill(Theme.Color.accent.opacity(0.18)))
+                }
+            }
+
+            // Your rank tile.
+            if c.isJoined {
+                myRankTile(c)
+            }
+
+            // Top of the field — first 5.
+            ForEach(Array(social.athletes.prefix(5).enumerated()), id: \.offset) { idx, a in
                 HStack(spacing: 12) {
                     Text("\(idx + 1)")
                         .font(.system(size: 13, weight: .bold, design: .rounded))
@@ -202,7 +366,7 @@ struct ChallengeDetailView: View {
                             .foregroundStyle(Theme.Color.inkFaint)
                     }
                     Spacer()
-                    Text("\(Int.random(in: 42...95))%")
+                    Text("\(deterministicPercent(for: a, top: idx))%")
                         .font(.system(size: 13, weight: .bold, design: .rounded))
                         .foregroundStyle(Theme.Color.ink)
                 }
@@ -211,6 +375,50 @@ struct ChallengeDetailView: View {
         }
         .padding(Theme.Space.md)
         .background(RoundedRectangle(cornerRadius: Theme.Radius.lg).fill(Theme.Color.bgElevated))
+    }
+
+    /// Inline tile showing the viewer's rank against the camp. Pulls
+    /// the user's avatar from social.me when available.
+    private func myRankTile(_ c: Challenge) -> some View {
+        HStack(spacing: 12) {
+            Text(c.myRank.map { "#\($0)" } ?? "—")
+                .font(.system(size: 13, weight: .heavy, design: .rounded))
+                .foregroundStyle(Theme.Color.accentInk)
+                .frame(width: 56)
+                .padding(.vertical, 6)
+                .background(Capsule().fill(Theme.Color.accent))
+            if let me = social.me {
+                AthleteAvatar(athlete: me, size: 32, showsTierRing: false)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("You")
+                        .font(.system(size: 13, weight: .semibold, design: .rounded))
+                        .foregroundStyle(Theme.Color.ink)
+                    Text("of \(c.participants.formatted(.number.notation(.compactName))) training")
+                        .font(.system(size: 11))
+                        .foregroundStyle(Theme.Color.inkFaint)
+                }
+            }
+            Spacer()
+            Text("\(Int(c.currentProgress * 100))%")
+                .font(.system(size: 13, weight: .bold, design: .rounded))
+                .foregroundStyle(Theme.Color.ink)
+        }
+        .padding(.vertical, 8).padding(.horizontal, 4)
+        .background(RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous)
+                        .fill(Theme.Color.accent.opacity(0.08)))
+        .overlay(RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous)
+                        .strokeBorder(Theme.Color.accent.opacity(0.25), lineWidth: 1))
+    }
+
+    /// Deterministic 60-99% completion bucket per athlete so the
+    /// leaderboard doesn't shuffle on every re-render.
+    private func deterministicPercent(for a: Athlete, top idx: Int) -> Int {
+        // First entry is always near-finish for the demo, then taper.
+        let base = [99, 94, 88, 82, 76, 71, 64][min(idx, 6)]
+        // Tiny per-athlete jitter so two cards with the same idx don't
+        // read identically when the leaderboard size shifts.
+        let jitter = abs(a.id.hashValue) % 4 - 2
+        return min(99, max(50, base + jitter))
     }
 
     // MARK: - Bottom CTA

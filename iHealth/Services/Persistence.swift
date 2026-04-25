@@ -20,6 +20,7 @@ enum AppPersistence {
 
     enum K {
         static let hasCompletedOnboarding = "SuiSportONE.hasCompletedOnboarding"
+        static let onboardingStep         = "SuiSportONE.onboardingStep"
         static let currentUser            = "SuiSportONE.currentUser.v1"
         static let workouts               = "SuiSportONE.workouts.v1"
         static let sweatPoints            = "SuiSportONE.sweatPoints.v1"
@@ -34,6 +35,23 @@ enum AppPersistence {
 
     static func loadHasCompletedOnboarding() -> Bool {
         UserDefaults.standard.bool(forKey: K.hasCompletedOnboarding)
+    }
+
+    // MARK: - onboardingStep
+    //
+    // Persisted as the rawValue (Int) of the OnboardingStep enum so
+    // a user who quits mid-flow lands back on the same screen
+    // instead of replaying from Hero. Default = .hero on miss.
+
+    static func saveOnboardingStep(_ step: OnboardingStep) {
+        UserDefaults.standard.set(step.rawValue, forKey: K.onboardingStep)
+    }
+
+    static func loadOnboardingStep() -> OnboardingStep {
+        // UserDefaults.integer returns 0 on miss, which happens to be
+        // .hero — the right default when there's no prior state.
+        let raw = UserDefaults.standard.integer(forKey: K.onboardingStep)
+        return OnboardingStep(rawValue: raw) ?? .hero
     }
 
     // MARK: - User profile struct
@@ -119,6 +137,7 @@ enum AppPersistence {
     /// fresh launch routes back to onboarding cleanly.
     static func clearAll() {
         UserDefaults.standard.removeObject(forKey: K.hasCompletedOnboarding)
+        UserDefaults.standard.removeObject(forKey: K.onboardingStep)
         UserDefaults.standard.removeObject(forKey: K.currentUser)
         UserDefaults.standard.removeObject(forKey: K.workouts)
         UserDefaults.standard.removeObject(forKey: K.sweatPoints)

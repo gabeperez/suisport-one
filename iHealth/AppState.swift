@@ -13,7 +13,9 @@ final class AppState {
     var isAuthenticated: Bool { currentUser != nil }
 
     // MARK: - Onboarding
-    var onboardingStep: OnboardingStep = .hero
+    var onboardingStep: OnboardingStep = .hero {
+        didSet { AppPersistence.saveOnboardingStep(onboardingStep) }
+    }
     var hasCompletedOnboarding: Bool = false {
         didSet { AppPersistence.saveHasCompletedOnboarding(hasCompletedOnboarding) }
     }
@@ -33,6 +35,19 @@ final class AppState {
         self.sweatPoints = AppPersistence.loadSweatPoints()
         if let token = AppPersistence.loadSessionToken() {
             APIClient.shared.sessionToken = token
+        }
+
+        // Resume on the screen the user last saw. If they were partway
+        // through onboarding when they force-quit, we drop them right
+        // back where they left off. With one floor: if they're already
+        // signed in, never show Hero / AgeGate / Auth again — those
+        // screens come BEFORE auth in the flow, so a signed-in user
+        // landing on them is the "kicked out" UX bug we just hit.
+        let savedStep = AppPersistence.loadOnboardingStep()
+        if currentUser != nil, savedStep.rawValue < OnboardingStep.nameGoal.rawValue {
+            self.onboardingStep = .nameGoal
+        } else {
+            self.onboardingStep = savedStep
         }
 
         // Returning users skip onboarding, so the BackfillScreen

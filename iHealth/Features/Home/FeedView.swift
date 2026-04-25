@@ -6,6 +6,7 @@ struct FeedView: View {
 
     @State private var selectedItem: FeedItem?
     @State private var selectedAthlete: Athlete?
+    @State private var selectedChallenge: Challenge?
     @State private var showStreakSheet = false
     @State private var showSortSheet = false
     @State private var sort: FeedSortSheet.FeedSort = .recent
@@ -47,6 +48,9 @@ struct FeedView: View {
             }
             .navigationDestination(item: $selectedAthlete) { a in
                 AthleteProfileView(athleteId: a.id)
+            }
+            .navigationDestination(item: $selectedChallenge) { c in
+                ChallengeDetailView(challengeId: c.id)
             }
             .sheet(isPresented: $showStreakSheet) {
                 StreakSheet()
@@ -167,7 +171,10 @@ struct FeedView: View {
         if let camp = social.challenges.first(where: {
             $0.title.contains("ONE Samurai 1")
         }) {
-            Button { Haptics.tap() } label: {
+            Button {
+                Haptics.tap()
+                selectedChallenge = camp
+            } label: {
                 VStack(alignment: .leading, spacing: 14) {
                     HStack(alignment: .top) {
                         VStack(alignment: .leading, spacing: 4) {

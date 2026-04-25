@@ -27,6 +27,7 @@ struct ChallengeDetailView: View {
                     designerStrip(c)
                     stakeBanner(c)
                     progress(c)
+                    trainingPlan(c)
                     trophyPreview(c)
                     rewards(c)
                     leaders(c)
@@ -275,6 +276,84 @@ struct ChallengeDetailView: View {
         let mine = Int(c.goal.target * c.currentProgress)
         let target = Int(c.goal.target)
         return "\(mine) of \(target) \(c.goal.unit)"
+    }
+
+    // MARK: - Training plan
+    //
+    // The "what you actually have to do" block. Generated from the
+    // camp's designer specialty + target session count via
+    // CampPlanner. Long camps (Nadaka's 30-day Lumpinee Mile) collapse
+    // to a 7-row preview with a "+ N more sessions" footer so the
+    // detail view stays scannable.
+
+    private func trainingPlan(_ c: Challenge) -> some View {
+        let plan = CampPlanner.plan(for: c)
+        let preview = plan.prefix(7)
+        let remaining = max(0, plan.count - preview.count)
+        return VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .firstTextBaseline) {
+                Text("Training plan")
+                    .font(.titleM).foregroundStyle(Theme.Color.ink)
+                Spacer()
+                Text("\(plan.count) session\(plan.count == 1 ? "" : "s")")
+                    .font(.system(size: 11, weight: .heavy, design: .rounded))
+                    .tracking(0.12)
+                    .foregroundStyle(Theme.Color.inkFaint)
+            }
+            VStack(spacing: 8) {
+                ForEach(Array(preview), id: \.id) { session in
+                    sessionRow(session, accent: c.hero.colors.0)
+                }
+                if remaining > 0 {
+                    Text("+ \(remaining) more session\(remaining == 1 ? "" : "s") in this camp")
+                        .font(.system(size: 12, weight: .semibold, design: .rounded))
+                        .foregroundStyle(Theme.Color.inkFaint)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.top, 2)
+                }
+            }
+        }
+        .padding(Theme.Space.md)
+        .background(RoundedRectangle(cornerRadius: Theme.Radius.lg).fill(Theme.Color.bgElevated))
+    }
+
+    private func sessionRow(_ s: CampSession, accent: Color) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            VStack(spacing: 2) {
+                Text("DAY")
+                    .font(.system(size: 8, weight: .heavy, design: .rounded))
+                    .tracking(0.14)
+                    .foregroundStyle(Theme.Color.inkFaint)
+                Text("\(s.dayIndex)")
+                    .font(.system(size: 16, weight: .heavy, design: .rounded))
+                    .foregroundStyle(Theme.Color.ink)
+            }
+            .frame(width: 38)
+            .padding(.vertical, 6)
+            .background(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(accent.opacity(0.14))
+            )
+
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 6) {
+                    Image(systemName: s.type.icon)
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundStyle(accent)
+                    Text(s.title)
+                        .font(.system(size: 14, weight: .bold, design: .rounded))
+                        .foregroundStyle(Theme.Color.ink)
+                    Text("· \(s.minutes) min")
+                        .font(.system(size: 12, weight: .semibold, design: .rounded))
+                        .foregroundStyle(Theme.Color.inkFaint)
+                }
+                Text(s.detail)
+                    .font(.bodyS)
+                    .foregroundStyle(Theme.Color.inkSoft)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 0)
+        }
     }
 
     // MARK: - Rewards

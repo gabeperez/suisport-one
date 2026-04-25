@@ -122,7 +122,6 @@ SuiSport ONE/
 ├── PITCH.md                   ← 5-min pitch outline (problem → demo → impact)
 ├── DEMO.md                    ← 3-min demo video script + shot list
 ├── docs/
-│   ├── REPO_SPLIT.md          ← canonical vs hackathon fork explanation
 │   ├── ON_CHAIN_STRATEGY.md   ← operator fanout, retries, costs
 │   └── SEAL_INTEGRATION.md    ← deferred-Seal plan
 ├── iHealth/                   ← SwiftUI app

@@ -15,10 +15,15 @@ nonisolated final class APIClient: @unchecked Sendable {
 
     let baseURL: URL = URL(string: "https://suisport-api.perez-jg22.workers.dev/v1")!
 
-    /// Session token returned by `/auth/session`. While we mock the auth
-    /// flow, we fall back to a `demoAthleteId` query param so the API
-    /// accepts mutating calls without a real session.
-    var sessionToken: String?
+    /// Session token returned by `/auth/session`. Writes through to
+    /// the keychain so the next launch can reload the session without
+    /// the user redoing onboarding. AppState.init also calls this
+    /// during cold-start to populate from disk.
+    /// While we mock the auth flow, `demoAthleteId` is the dev-only
+    /// query-param fallback (server-side gated to non-production).
+    var sessionToken: String? {
+        didSet { AppPersistence.saveSessionToken(sessionToken) }
+    }
     var demoAthleteId: String? = "0xdemo_me"
 
     private let session: URLSession = {

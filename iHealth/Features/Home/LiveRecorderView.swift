@@ -343,9 +343,24 @@ struct LiveRecorderView: View {
 
     @MainActor
     private func submit(_ pending: PendingSubmit) async {
+        // Skip the network call if this exact workout (by HealthKit
+        // UUID) is already minted on chain. The server's
+        // canonical_hash check would reject it anyway with a 422 —
+        // catching it here means the UI flips straight to "✓ on
+        // chain" instead of flashing a spinner before an error.
+        if app.isAlreadyOnChain(pending.workout) {
+            pendingSubmit = nil
+            Haptics.success()
+            return
+        }
         do {
             _ = try await APIClient.shared.submitWorkout(pending.request)
             pendingSubmit = nil
+            // Mark the cached workout verified so future relaunches
+            // recognize it without another submit attempt.
+            if let idx = app.workouts.firstIndex(where: { $0.id == pending.workout.id }) {
+                app.workouts[idx].verified = true
+            }
             // Refresh the feed so the new workout shows up immediately.
             await social.refresh()
             Haptics.success()

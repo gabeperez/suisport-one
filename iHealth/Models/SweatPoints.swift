@@ -2,7 +2,7 @@ import Foundation
 
 /// User-facing currency. We NEVER show "$SWEAT" in the main app —
 /// that conversion lives in a separate external flow per App Store rules.
-struct SweatPoints: Equatable {
+struct SweatPoints: Equatable, Codable {
     var total: Int
     var weekly: Int
     var streakDays: Int

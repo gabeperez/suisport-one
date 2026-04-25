@@ -110,6 +110,15 @@ struct AthleteProfileView: View {
                 .font(.system(size: 12, weight: .medium, design: .rounded))
                 .foregroundStyle(Theme.Color.inkFaint)
         }
+        // Surface a small attribution when the avatar is rendered
+        // from ONE Championship's CDN. Required to keep our use of
+        // their fighter likenesses respectful — visible but
+        // unobtrusive.
+        if let url = a.photoURL, url.contains("cdn.onefc.com") {
+            Text("Photo: ONE Championship")
+                .font(.system(size: 10, weight: .medium))
+                .foregroundStyle(Theme.Color.inkFaint.opacity(0.8))
+        }
     }
 
     private func tierBadge(_ tier: AthleteTier) -> some View {

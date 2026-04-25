@@ -24,6 +24,7 @@ struct FeedView: View {
                     if social.lastRefreshError {
                         offlineBanner
                     }
+                    samuraiCard
                     pointsCard
                     streakCard
                     filterRow
@@ -140,6 +141,168 @@ struct FeedView: View {
             RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous)
                 .strokeBorder(Theme.Color.hot.opacity(0.3), lineWidth: 1)
         )
+    }
+
+    // MARK: - ONE Samurai 1 hero card
+    //
+    // The headline pinned-to-feed card during the hackathon window.
+    // Shows the official ONE Samurai 1 event details + a live
+    // countdown to fight night + the user's progress in the camp.
+    //
+    // Tapping the card jumps to the Samurai challenge in Explore →
+    // Challenges. If we ever lose the underlying challenge the card
+    // gracefully hides itself.
+
+    private static let samuraiFightDate: Date = {
+        // Wed, April 29, 2026 — Ariake Arena Tokyo. JST = UTC+9.
+        var c = DateComponents()
+        c.year = 2026; c.month = 4; c.day = 29
+        c.hour = 17; c.minute = 0
+        c.timeZone = TimeZone(identifier: "Asia/Tokyo")
+        return Calendar(identifier: .gregorian).date(from: c) ?? .now
+    }()
+
+    @ViewBuilder
+    private var samuraiCard: some View {
+        if let camp = social.challenges.first(where: {
+            $0.title.contains("ONE Samurai 1")
+        }) {
+            Button { Haptics.tap() } label: {
+                VStack(alignment: .leading, spacing: 14) {
+                    HStack(alignment: .top) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            HStack(spacing: 6) {
+                                Circle().fill(Color(red: 0.85, green: 0.02, blue: 0.16))
+                                    .frame(width: 6, height: 6)
+                                Text("ONE SAMURAI 1")
+                                    .font(.system(size: 11, weight: .heavy, design: .rounded))
+                                    .tracking(0.16)
+                                    .foregroundStyle(.white.opacity(0.9))
+                            }
+                            Text("Train for fight night.")
+                                .font(.system(size: 22, weight: .bold, design: .rounded))
+                                .foregroundStyle(.white)
+                                .lineSpacing(-2)
+                            Text("Wed, Apr 29 · Ariake Arena Tokyo")
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundStyle(.white.opacity(0.7))
+                        }
+                        Spacer()
+                        countdownPill
+                    }
+
+                    progressStrip(camp)
+
+                    HStack(spacing: 8) {
+                        ForEach(headlineFighters.prefix(4), id: \.id) { a in
+                            AthleteAvatar(athlete: a, size: 28, showsTierRing: false)
+                        }
+                        Text("\(camp.participants.formatted(.number.notation(.compactName))) training")
+                            .font(.system(size: 12, weight: .semibold, design: .rounded))
+                            .foregroundStyle(.white.opacity(0.85))
+                        Spacer()
+                        Text(camp.isJoined ? "Open camp →" : "Join →")
+                            .font(.system(size: 12, weight: .bold, design: .rounded))
+                            .foregroundStyle(.white)
+                    }
+                }
+                .padding(Theme.Space.lg)
+                .frame(maxWidth: .infinity)
+                .background(
+                    ZStack(alignment: .topTrailing) {
+                        // Deep ONE-red → black gradient hero.
+                        LinearGradient(
+                            colors: [
+                                Color(red: 0.06, green: 0.06, blue: 0.07),
+                                Color(red: 0.20, green: 0.04, blue: 0.06),
+                                Color(red: 0.85, green: 0.02, blue: 0.16),
+                            ],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                        // Faint sun-disc — Japanese flag echo.
+                        Circle()
+                            .fill(Color.white.opacity(0.06))
+                            .frame(width: 220, height: 220)
+                            .offset(x: 60, y: -90)
+                            .blur(radius: 0.5)
+                    }
+                )
+                .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.xl,
+                                            style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: Theme.Radius.xl, style: .continuous)
+                        .strokeBorder(.white.opacity(0.08), lineWidth: 1)
+                )
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    /// Top fighters on the card to render as overlapping avatars.
+    private var headlineFighters: [Athlete] {
+        ["yuya_wakamatsu", "k1takeru", "nadaka", "ayaka_zombie"]
+            .compactMap { h in social.athletes.first { $0.handle == h } }
+    }
+
+    /// Days / hours to fight night, presented as a tight pill.
+    private var countdownPill: some View {
+        let now = Date()
+        let interval = Self.samuraiFightDate.timeIntervalSince(now)
+        let days = Int((interval / 86_400).rounded(.down))
+        let hours = Int(((interval - Double(days) * 86_400) / 3600).rounded(.down))
+        let label: String
+        let detail: String
+        if interval < 0 {
+            label = "TONIGHT"; detail = "Fight night"
+        } else if days >= 1 {
+            label = "\(days)"; detail = days == 1 ? "day out" : "days out"
+        } else {
+            label = "\(max(hours, 0))"; detail = "hours out"
+        }
+        return VStack(spacing: 0) {
+            Text(label)
+                .font(.system(size: 28, weight: .heavy, design: .rounded))
+                .foregroundStyle(.white)
+            Text(detail)
+                .font(.system(size: 9, weight: .bold, design: .rounded))
+                .tracking(0.14)
+                .foregroundStyle(.white.opacity(0.7))
+        }
+        .padding(.horizontal, 14).padding(.vertical, 8)
+        .background(Capsule().fill(.white.opacity(0.08)))
+        .overlay(Capsule().strokeBorder(.white.opacity(0.18), lineWidth: 1))
+    }
+
+    /// Camp completion bar. Reads the user's progress on the underlying
+    /// "ONE Samurai 1 — Fight Week" challenge.
+    private func progressStrip(_ c: Challenge) -> some View {
+        let pct = max(0, min(c.currentProgress, 1.0))
+        let goalLabel = "\(Int(c.goal.target)) \(c.goal.unit)"
+        return VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text("Fight-week camp")
+                    .font(.system(size: 11, weight: .bold, design: .rounded))
+                    .tracking(0.12)
+                    .foregroundStyle(.white.opacity(0.75))
+                Spacer()
+                Text("\(Int(pct * 100))% · goal \(goalLabel)")
+                    .font(.system(size: 11, weight: .semibold, design: .rounded))
+                    .foregroundStyle(.white.opacity(0.7))
+            }
+            GeometryReader { geo in
+                ZStack(alignment: .leading) {
+                    Capsule().fill(.white.opacity(0.12))
+                    Capsule()
+                        .fill(LinearGradient(colors: [
+                            Color(red: 1.00, green: 0.55, blue: 0.55),
+                            Color(red: 1.00, green: 0.20, blue: 0.20),
+                        ], startPoint: .leading, endPoint: .trailing))
+                        .frame(width: geo.size.width * CGFloat(pct))
+                }
+            }
+            .frame(height: 6)
+        }
     }
 
     // MARK: - Points card

@@ -1,123 +1,172 @@
-# SuiSport
+# SuiSport ONE
 
-A Strava-like fitness app on the Sui blockchain. Users sign in with Apple or
-Google, record workouts via Apple HealthKit, and earn **Sweat Points** (which
-can be converted to the $SWEAT token in a separate companion flow).
+> **Train like a fighter.** Verified workouts, on-chain rewards, built for ONE Championship's Japanese audience.
+>
+> Hackathon submission — **Sui × ONE Samurai Tokyo Builders Arena**, April 2026.
 
-**Design principles**
+SuiSport ONE turns ONE Championship fighters into your training partner. Pick a fighter, run their official fight-week camp inside the app, and prove every session on the Sui blockchain. Apple Watch verifies the workout, Walrus stores the canonical proof, the Move package mints SWEAT rewards and a soulbound trophy from that fighter on completion.
 
-- Zero crypto vocabulary in the UI. Users never see a wallet, seed phrase, or
-  transaction. Sign-in with Apple is one tap and completes the full zkLogin
-  flow invisibly. All gas is sponsored.
-- HealthKit-first: we count what you already do and verify it before minting.
-- Storage sovereignty: GPS traces and photos live on Walrus, owned by the
-  user's Sui address.
+It's a fan-engagement product the moment ONE wants to ship it, and a real consumer app from day one.
 
-## Repository layout
+| | |
+|---|---|
+| Hackathon | [Sui × ONE Samurai (Tokyo, Apr 2026)](https://mystenlabs.notion.site/sui-one-samurai-apr-2026-tokyo-builders-arena) |
+| Demo day | Wed, April 29, 2026 — Ariake Arena, Tokyo |
+| Track | Fan engagement / athlete tools — built around the live ONE Samurai 1 card |
+| Stack | iOS (SwiftUI) · Cloudflare Workers + D1 + R2 · Walrus · Sui Move (testnet) · Apple App Attest · Enoki zkLogin |
+| Repo | [`gabeperez/suisport-one`](https://github.com/gabeperez/suisport-one) (forked from [`gabeperez/suisport`](https://github.com/gabeperez/suisport) at tag `v0.1-pre-hackathon` — see `docs/REPO_SPLIT.md`) |
+
+---
+
+## The pitch in 60 seconds
+
+ONE Championship has a global fighter roster, a passionate Japanese fan base, and one universal problem every league has: fans watch. They don't *do*. SuiSport ONE makes the gap between watching a fighter and training like one a single tap.
+
+A fan opens the app the morning of ONE Samurai 1, sees Yuya Wakamatsu's pressure-camp pinned to the top of their feed, taps **Train with Yuya**, and starts logging the same striking + grappling + roadwork sessions the real Wakamatsu does. Apple Watch confirms each session was real. The Sui Move contract verifies the attestation, mints SWEAT tokens, and on completion drops a soulbound trophy NFT bearing Yuya's signature. The fighter's social handle, gym, and camp progress are all real — pulled from ONE Championship's public fighter pages. Photos are served live from `cdn.onefc.com` per their content syndication policy.
+
+There's no wallet to install (Enoki zkLogin signs you in with Apple or Google), no gas to pay (sponsored transactions), and no complicated Japanese onboarding (the app is iOS-first, the largest mobile market in Japan).
+
+---
+
+## What's live
+
+### iOS app (`iHealth/`)
+- SwiftUI, iOS 17+, Apple HealthKit + App Attest + zkLogin
+- Onboarding flow gates Health permission + age first, then auths via Apple, Google, or Sui wallet (Slush universal-link to Slush mobile)
+- Five new fight-camp workout types — `striking`, `grappling`, `mma`, `conditioning`, `recovery` — alongside the existing run/ride/swim. HealthKit auto-classifies Apple Watch boxing/wrestling/martial-arts/mixed-cardio sessions
+- ONE Samurai 1 hero card on the feed with a live countdown to fight night
+- Real ONE Championship roster as seed athletes — Wakamatsu, Takeru, Nadaka, Ayaka Miura, Itsuki Hirata, Akimoto, Aoki, Wada — with bios, gyms, native handles, hotlinked CDN photos
+- Real gyms as Clubs — Evolve MMA Singapore, Tribe Tokyo MMA, Team Vasileus, Eiwa Sports Gym, K-Clann
+- Six fight-week camps as Challenges, all sponsored by ONE Championship
+- On-chain workout submit with App Attest + canonical-hash, Walrus blob upload, Sui Move `submit_workout` call, deep links into Sui explorer + Walrus
+- Push notifications via APNs (kudos, tips, comments) with `suisport://feed/<id>` deep links
+
+### Backend (`cloudflare/`)
+- Cloudflare Worker (Hono) + D1 + R2 + scheduled cron
+- Worker fans out workout submissions to a multi-operator keypair pool on Sui testnet so we can mint `Workout` objects + SWEAT in parallel; reconciler cron retries any stuck submissions
+- Trophy + PR writer runs on every workout submit (first-run, 5K/10K/half/full milestones, streaks, lifetime points)
+- App Attest fully verifies — x5c chain → Apple App Attest Root CA, nonce extension, aaguid, credentialId — before any reward mints
+- Apple Push Notifications via ES256 JWT, parallel fanout per device
+- Avatar uploads via `POST /v1/media/avatar` to R2
+
+### On-chain (`move/suisport/`)
+- Sui Move package (testnet) with modules: `user_profile`, `workout_registry`, `rewards_engine`, `sweat`, `challenges`, `admin`, `version`
+- Operator + Oracle separation — operator pays gas + owns user profile objects, oracle signs attestation digests the contract verifies. Compromise of one keypair doesn't drain the other
+- Package: `0x966699ee60fdb9e1a308d5d3c0da28fe10ed90ce870fa43a97ff74544b3b452b` (testnet)
+
+### Infra
+- Worker: `https://suisport-api.perez-jg22.workers.dev`
+- Wallet bridge (dapp-kit): `https://suisport-wallet.pages.dev`
+- D1 database: `suisport-db` · R2 bucket: `suisport-media`
+- Backend is shared with the canonical SuiSport repo — see `docs/REPO_SPLIT.md`
+
+---
+
+## Sui integration map
+
+We build directly on the four Sui products the hackathon brief calls out:
+
+| Product | Where we use it |
+|---|---|
+| **Sui Move** | `move/suisport/` — `rewards_engine::submit_workout` verifies an oracle-signed attestation digest, mints `WorkoutSubmitted` events, mints SWEAT to the athlete, optionally writes a soulbound `Trophy` NFT. Versioned shared `RewardsEngine` + `Version` objects |
+| **Enoki zkLogin** | iOS `AuthService.signInWithGoogle/Apple` exchanges the OAuth id_token via the Worker → Enoki, returns a session JWT + Sui address. No seed-phrase UX |
+| **Walrus** | `cloudflare/src/walrus.ts` uploads the canonical workout JSON (athlete, type, duration, distance, calories, blake2b digest) to a Walrus publisher and stores the resulting blob id back on the `Workout` object as immutable proof |
+| **Slush wallet** | iOS `WalletConnectBridge` opens `https://my.slush.app/browse/<bridge-url>` so fans who already use Slush can sign in directly without ever copying a key |
+
+We also leaned into App Attest end-to-end — every workout submission carries an Apple-attested signature so the rewards path is robust against jailbroken devices spoofing fake workouts.
+
+The full deferred-Seal plan lives in `docs/SEAL_INTEGRATION.md`. (Short version: testnet key servers are non-durable and there's no Swift SDK, so we held off on Seal for this build.)
+
+---
+
+## How a fan actually uses it
 
 ```
-SuiSport App/
-├── iHealth.xcodeproj/              # Xcode project (iOS 26+, Swift 6)
-├── iHealth/                        # iOS app source
-│   ├── iHealthApp.swift            # @main entry
-│   ├── ContentView.swift           # RootView router
-│   ├── AppState.swift              # @Observable app-wide state
-│   ├── iHealth.entitlements        # HealthKit + App Attest + Sign in with Apple
-│   ├── Assets.xcassets/
-│   ├── DesignSystem/               # Theme, Typography, Haptics, Components
-│   ├── Models/                     # User, Workout, SweatPoints, OnboardingStep
-│   ├── Services/                   # AuthService (Enoki), HealthKit, Recorder, App Attest, APIClient
-│   └── Features/
-│       ├── Onboarding/             # 6-screen flow: Hero → Auth → Name/Goal → Health → Backfill → Notifications
-│       └── Home/                   # RootTabView, Feed, Record sheet, Profile
-├── move/suisport/                  # Move 2024 Edition package
-│   ├── Move.toml
-│   ├── sources/                    # sweat, admin, version, rewards_engine, workout_registry, user_profile, challenges
-│   └── README.md
-├── backend/                        # Fastify/TS service — Enoki + Walrus + App Attest + Sui sponsored tx
-│   ├── package.json
-│   ├── .env.example
-│   ├── src/{index,config}.ts
-│   ├── src/routes/{auth,workouts,health}.ts
-│   ├── src/services/{enoki,walrus,oracle,sui,appAttest}.ts
-│   └── README.md
-└── README.md                       # You are here
+1.  Fan opens SuiSport ONE the morning of ONE Samurai 1
+2.  Hero card on feed: ONE Samurai 1 — 4 days out — Train for fight night
+3.  Tap → fight-week camp screen, pick "Train with Yuya"
+4.  Yuya's program shows: 14 sessions across 7 days,
+    striking + grappling + roadwork mix
+5.  Fan does session 1 (40 min striking), Apple Watch records,
+    HealthKit hands the workout to SuiSport ONE
+6.  App Attest signs the canonical hash, Walrus uploads the blob
+7.  Worker submits to Sui via the operator keypair
+8.  rewards_engine::submit_workout verifies oracle signature,
+    mints WorkoutSubmitted + RewardMinted events, mints SWEAT
+9.  iOS shows the live tx digest, links to Suiscan + Walruscan
+10. On completion (14/14 sessions): soulbound Yuya trophy NFT
+    + a kudos push from Yuya
 ```
 
-## Getting the iOS app to build
+The headline mechanic is intentionally narrow. We didn't invent a new social network for fighters — we made one round-trip between *watching ONE on TV* and *training like the fighter you just watched* feel like one product.
 
-Open `iHealth.xcodeproj` in Xcode 26.4 or newer. The project already uses
-PBX file-system-synchronized groups, so everything under `iHealth/` is
-automatically in the target — no drag-and-drop needed.
+---
 
-One-time Xcode setup (most already wired via build settings, but confirm in
-**Signing & Capabilities** for the `iHealth` target):
+## What's in the repo
 
-1. **Signing**: select your Apple Developer team. The bundle id is
-   `gimme.coffee.iHealth`.
-2. **Capabilities** (+ button): add **HealthKit** (subfeature: Background
-   Delivery), **App Attest**, and **Sign in with Apple**. The entitlements
-   file is already referenced — Xcode will reconcile toggles with the file.
-3. Build + run on a real iPhone (HealthKit + App Attest don't run in the
-   simulator).
+```
+SuiSport ONE/
+├── README.md                  ← you are here
+├── PITCH.md                   ← 5-min pitch outline (problem → demo → impact)
+├── DEMO.md                    ← 3-min demo video script + shot list
+├── docs/
+│   ├── REPO_SPLIT.md          ← canonical vs hackathon fork explanation
+│   ├── ON_CHAIN_STRATEGY.md   ← operator fanout, retries, costs
+│   └── SEAL_INTEGRATION.md    ← deferred-Seal plan
+├── iHealth/                   ← SwiftUI app
+│   ├── Features/Onboarding/   ← AgeGate → Auth → NameGoal → Health → Backfill → Notifs
+│   ├── Features/Home/         ← Feed (with Samurai hero), Workout detail, Profile, Rewards
+│   ├── Features/Clubs/        ← Gym membership UI
+│   ├── Features/Explore/      ← Challenges (fight camps), Segments
+│   ├── Services/              ← APIClient, HealthKit, Auth, App Attest, Push, Wallet bridge
+│   └── Models/                ← Workout, Athlete, FeedItem, Challenge, etc.
+├── cloudflare/
+│   ├── src/                   ← Worker (Hono) + routes + Move client + APNs + Walrus
+│   └── migrations/            ← D1 schema migrations 0001–0012
+└── move/suisport/             ← Sui Move package (deployed on testnet)
+```
 
-Notable build settings already set in `project.pbxproj`:
-- `CODE_SIGN_ENTITLEMENTS = iHealth/iHealth.entitlements`
-- All `NS*UsageDescription` strings as `INFOPLIST_KEY_*`
-- `UIBackgroundModes = location processing`
-- `IPHONEOS_DEPLOYMENT_TARGET = 26.4` (HealthKit workout stack on iPhone needs iOS 26)
-- `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor` (Swift 6 main-actor-by-default)
+---
 
-## Running the Move package
+## Running it locally
 
 ```bash
+# 1. iOS
+open iHealth.xcodeproj
+# Cmd-R to a real device or simulator. Bundle id = gimme.coffee.iHealth.
+# App Attest only fires on real devices; the simulator path uses unsigned mode.
+
+# 2. Backend
+cd cloudflare
+npm install
+npm run dev          # local Worker against the deployed D1
+# Or:
+npm run deploy
+
+# 3. Move (only if you want to redeploy)
 cd move/suisport
 sui move build
-sui move test
-sui client publish --gas-budget 200000000
+sui client publish --gas-budget 100000000
+# update SUI_PACKAGE_ID + related ids in wrangler secrets
 ```
 
-After publish, paste the returned `package_id`, `AdminCap` id, and shared
-object ids into `backend/.env`. Then:
+Existing testnet deployment is live and shared with the canonical SuiSport repo. The Worker URL above already serves both apps — see `docs/REPO_SPLIT.md` for why.
 
-1. Generate an Ed25519 key pair for the oracle (`sui keytool generate ed25519`)
-   and paste the public key hex into the PTB that calls `admin::mint_oracle`.
-2. Call `rewards_engine::initialize` with your `TreasuryCap<SWEAT>` and initial
-   caps (`epoch_cap`, `per_user_cap`).
-3. Transfer `AdminCap` to a Sui multisig. Transfer `OracleCap` to the backend's
-   custodial address.
+---
 
-## Running the backend
+## Brand & licensing
 
-```bash
-cd backend
-cp .env.example .env                    # fill in Enoki, Sui, oracle, Walrus values
-npm install
-npm run dev
-```
+SuiSport ONE is an **independent hackathon submission**. ONE Championship has not endorsed, sponsored, or partnered with this project.
 
-The iOS app expects the backend at `APIClient.baseURL`
-(`https://api.suisport.app`) — change that for local dev.
+Fighter names, records, gym affiliations, and bios are factual public data sourced from [onefc.com](https://onefc.com) athlete pages, with cross-references to Sherdog and Tapology where helpful. Every fighter card carries a "Photo: ONE Championship" attribution; photos are loaded from `cdn.onefc.com` directly per ONE's [content syndication policy](https://www.onefc.com/content-syndication/) and never mirrored to our own storage.
 
-## What's real vs. what's mocked right now
+If ONE Championship's team wants to pursue this concept further, all of the technical groundwork — verified-workouts pipeline, fighter-attached challenges, soulbound trophies — is here and we'd love to talk.
 
-| Piece | Status |
-|---|---|
-| Onboarding flow UI | Real SwiftUI, animated, haptic |
-| Sign in with Apple UI | Real — calls `ASAuthorizationAppleIDProvider` |
-| zkLogin exchange | Mocked in `AuthService` — derives a deterministic hex "address" from the OAuth subject so it looks + behaves like zkLogin will |
-| HealthKit permission + backfill | Real — hits your phone's Apple Health |
-| Live workout recording | Skeleton (`WorkoutRecorder`) wired but Record tab shows a picker sheet only |
-| Feed / profile / points counters | Real, driven by backfilled workouts |
-| Challenges tab | Placeholder |
-| Move contracts | Real (Move 2024 Edition, compile target) — untested against mainnet yet |
-| Backend | Scaffold — endpoint signatures + service stubs; Enoki/Walrus/App Attest logic marked `not implemented` where real API keys are needed |
+---
 
-## Next steps to go from demo to testnet-live
+## Credits
 
-1. Wire a real backend `POST /auth/session` that calls Enoki's HTTP API — swap the mock in `AuthService` for `APIClient.exchange`.
-2. Implement `services/sui.ts::submitWorkoutPTB` (Mysten TS SDK + Enoki sponsored-tx).
-3. Wire App Attest registration on first launch; send the attestation blob to the backend before any submits.
-4. Build out the live workout UI (`Features/Record`) around `WorkoutRecorder`.
-5. Publish the Move package to testnet; run `rewards_engine::initialize`.
-6. End-to-end: record a workout → backend verifies → Walrus upload → Sui mint → feed updates with verified check.
+Built by Gabe Perez for the Sui × ONE Samurai Tokyo Builders Arena.
+With deep respect for the sport, ONE Championship, and the fighters whose camps we tried to honor in this small app.
+
+📜 **Photo: ONE Championship.**

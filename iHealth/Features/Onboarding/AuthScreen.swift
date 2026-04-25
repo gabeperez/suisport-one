@@ -230,15 +230,15 @@ struct AuthScreen: View {
                 .foregroundStyle(Theme.Color.ink)
                 .padding(.top, Theme.Space.md)
 
-            row("Log real workouts",
-                "SuiSport ONE reads Apple Health to count what you already do — runs, rides, walks, lifts.",
-                icon: "heart.fill")
-            row("Earn points automatically",
-                "You get Sweat Points for every verified workout. No ads. No surveys. Just move.",
-                icon: "sparkles")
-            row("Redeem for real stuff",
-                "Swap points for gear, sponsor quests, or cash out to $SWEAT in our companion app.",
-                icon: "gift.fill")
+            row("Train with the fighters",
+                "Pick a fighter on the ONE Championship roster, run their official camp — striking, grappling, conditioning, recovery.",
+                icon: "figure.martial.arts")
+            row("Verified by your Apple Watch",
+                "Every session is signed by App Attest, blob-stored on Walrus, minted on Sui. No ads. No surveys.",
+                icon: "checkmark.seal.fill")
+            row("Earn rewards from the fighter",
+                "Soulbound trophies signed by the fighter on completion. Plus Sweat Points and sponsor drops.",
+                icon: "trophy.fill")
 
             Spacer()
             GhostButton(title: "Got it") {}

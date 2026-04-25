@@ -20,26 +20,41 @@ struct User: Identifiable, Hashable, Codable {
 
 enum AuthProvider: String, Codable { case apple, google }
 
+/// Onboarding goals — what the user is here for. Reframed for SuiSport
+/// ONE around martial arts. Generic activity ("stay active") still
+/// reachable via the cross-training case so a runner who follows ONE
+/// for the fights isn't excluded.
 enum UserGoal: String, CaseIterable, Codable, Identifiable {
-    case run, ride, lift, justMove
+    case fightCamp, striking, grappling, crossTrain
 
     var id: String { rawValue }
 
     var title: String {
         switch self {
-        case .run: return "Run"
-        case .ride: return "Ride"
-        case .lift: return "Lift"
-        case .justMove: return "Just move"
+        case .fightCamp:  return "Fight camp"
+        case .striking:   return "Striking"
+        case .grappling:  return "Grappling"
+        case .crossTrain: return "Cross-train"
+        }
+    }
+
+    /// Short hint shown under the title (or used as a tooltip) so
+    /// users picking the goal know what's behind it.
+    var subtitle: String {
+        switch self {
+        case .fightCamp:  return "Train like a fighter"
+        case .striking:   return "Boxing · Muay Thai · K-1"
+        case .grappling:  return "BJJ · wrestling · clinch"
+        case .crossTrain: return "Run, ride, lift, recover"
         }
     }
 
     var icon: String {
         switch self {
-        case .run: return "figure.run"
-        case .ride: return "figure.outdoor.cycle"
-        case .lift: return "figure.strengthtraining.traditional"
-        case .justMove: return "figure.walk.motion"
+        case .fightCamp:  return "figure.martial.arts"
+        case .striking:   return "figure.boxing"
+        case .grappling:  return "figure.wrestling"
+        case .crossTrain: return "figure.cross.training"
         }
     }
 }

@@ -1,6 +1,12 @@
 import SwiftUI
 
-/// Deterministic gradient avatar used everywhere an athlete's face would go.
+/// Round avatar used everywhere an athlete's face would go.
+///
+/// Render order: AsyncImage when `photoURL` is set (e.g. real ONE
+/// Championship CDN URLs for fighter seed data), local `photoData`
+/// when the user uploaded their own photo, gradient + initials as
+/// the fallback. The fallback is intentionally first-class so the
+/// app degrades gracefully if cdn.onefc.com 404s during a demo.
 struct AthleteAvatar: View {
     let athlete: Athlete
     var size: CGFloat = 40
@@ -13,15 +19,9 @@ struct AthleteAvatar: View {
                     .stroke(athlete.tier.ring, lineWidth: max(1.5, size * 0.045))
                     .frame(width: size + size * 0.14, height: size + size * 0.14)
             }
-            Circle()
-                .fill(athlete.avatarTone.gradient)
+            avatarBody
                 .frame(width: size, height: size)
-                .overlay(
-                    Text(initials)
-                        .font(.system(size: size * 0.38, weight: .bold, design: .rounded))
-                        .foregroundStyle(.white)
-                        .shadow(color: .black.opacity(0.18), radius: 2, y: 1)
-                )
+                .clipShape(Circle())
             if athlete.verified {
                 Image(systemName: "checkmark.seal.fill")
                     .font(.system(size: size * 0.28, weight: .bold))
@@ -30,6 +30,37 @@ struct AthleteAvatar: View {
                     .offset(x: size * 0.38, y: size * 0.38)
             }
         }
+    }
+
+    @ViewBuilder
+    private var avatarBody: some View {
+        if let urlStr = athlete.photoURL, let url = URL(string: urlStr) {
+            AsyncImage(url: url, transaction: Transaction(animation: .easeOut(duration: 0.2))) { phase in
+                switch phase {
+                case .success(let image):
+                    image.resizable().aspectRatio(contentMode: .fill)
+                case .empty, .failure:
+                    fallback
+                @unknown default:
+                    fallback
+                }
+            }
+        } else if let data = athlete.photoData, let img = UIImage(data: data) {
+            Image(uiImage: img).resizable().aspectRatio(contentMode: .fill)
+        } else {
+            fallback
+        }
+    }
+
+    private var fallback: some View {
+        Circle()
+            .fill(athlete.avatarTone.gradient)
+            .overlay(
+                Text(initials)
+                    .font(.system(size: size * 0.38, weight: .bold, design: .rounded))
+                    .foregroundStyle(.white)
+                    .shadow(color: .black.opacity(0.18), radius: 2, y: 1)
+            )
     }
 
     private var initials: String {

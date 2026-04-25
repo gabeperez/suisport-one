@@ -562,20 +562,122 @@ private extension SocialDataService {
     }
 
     static func seedAthletes() -> [Athlete] {
-        [
-            Athlete.preview("ajoy", name: "Ajoy Ramirez", tier: .gold),
-            Athlete.preview("harper", name: "Harper Lin", tier: .silver),
-            Athlete.preview("kip_e", name: "Eliud K.", tier: .legend, verified: true),
-            Athlete.preview("sam", name: "Sam Patel", tier: .silver),
-            Athlete.preview("nico", name: "Nico Ferrer", tier: .bronze),
-            Athlete.preview("teddy", name: "Teddy Cho", tier: .silver),
-            Athlete.preview("ris", name: "Iris Novak", tier: .gold),
-            Athlete.preview("maya", name: "Maya Ford", tier: .bronze),
-            Athlete.preview("jun", name: "Jun Takahashi", tier: .legend, verified: true),
-            Athlete.preview("leo", name: "Leo Marchetti", tier: .starter),
-            Athlete.preview("zoe", name: "Zoe Watkins", tier: .silver),
-            Athlete.preview("dre", name: "Andre Johnson", tier: .gold)
+        // ONE Championship roster seed.
+        //
+        // Bios + records cross-checked against onefc.com athlete pages
+        // and Sherdog/Tapology where ONE's page didn't surface a
+        // canonical record (sources documented in
+        // docs/REPO_SPLIT.md and the README).
+        //
+        // photoURL hotlinks ONE's public CDN. ONE Championship's content
+        // syndication doc explicitly invites direct embedding from
+        // their servers. The avatar view falls back to the gradient
+        // initials view if any image 404s, so the demo never shows a
+        // broken state. We attribute "Photo: ONE Championship" on the
+        // athlete profile screen.
+        return [
+            oneFighter(
+                handle: "yuya_wakamatsu", name: "Yuya Wakamatsu",
+                tier: .legend, verified: true, tone: .ember,
+                bio: "ONE Flyweight MMA World Champion. Pressure striker. Tribe Tokyo MMA. リトルピラーニャ.",
+                location: "Tokyo, Japan",
+                followers: 184_300, totalWorkouts: 612,
+                photoURL: "https://cdn.onefc.com/wp-content/uploads/2025/03/Yuya_Wakamatsu-hero-champ-1200x1165-1-600x583.jpg"
+            ),
+            oneFighter(
+                handle: "k1takeru", name: "Takeru Segawa",
+                tier: .legend, verified: true, tone: .ember,
+                bio: "Three-division K-1 champion. Natural Born Krusher. Team Vasileus. 武尊.",
+                location: "Tokyo, Japan",
+                followers: 1_240_000, totalWorkouts: 540,
+                photoURL: "https://cdn.onefc.com/wp-content/uploads/2023/11/Takeru-1200x1165-1-600x583.png"
+            ),
+            oneFighter(
+                handle: "nadaka", name: "Nadaka Yoshinari",
+                tier: .legend, verified: true, tone: .grape,
+                bio: "Inaugural ONE Atomweight Muay Thai World Champion. Pro debut at 14 in Lumpinee. Eiwa Sports Gym.",
+                location: "Tokyo, Japan",
+                followers: 88_400, totalWorkouts: 480,
+                photoURL: "https://cdn.onefc.com/wp-content/uploads/2025/01/Nadaka-hero-champ-1200x1165-1-600x583.png"
+            ),
+            oneFighter(
+                handle: "ayaka_zombie", name: "Ayaka Miura",
+                tier: .gold, verified: true, tone: .rose,
+                bio: "Atomweight grappler. 3rd-degree judo black belt. Inventor of the Ayaka Lock. Tribe Tokyo MMA.",
+                location: "Tokyo, Japan",
+                followers: 62_100, totalWorkouts: 410,
+                photoURL: "https://cdn.onefc.com/wp-content/uploads/2023/10/Ayaka_Miura-hero-1200x1165-1-600x583.jpg"
+            ),
+            oneFighter(
+                handle: "_itsuki_h_", name: "Itsuki Hirata",
+                tier: .gold, verified: true, tone: .sunset,
+                bio: "Android 18. Atomweight submission grappler. K-Clann Tokyo, training stints with Serra-Longo NY.",
+                location: "Tokyo, Japan",
+                followers: 96_800, totalWorkouts: 358,
+                photoURL: "https://cdn.onefc.com/wp-content/uploads/2019/05/Itsuki_Hirata-hero-1200x1165-1-600x583.png"
+            ),
+            oneFighter(
+                handle: "hiro_a_16", name: "Hiroki Akimoto",
+                tier: .gold, verified: true, tone: .ocean,
+                bio: "Karate-base bantamweight kickboxer. Body-shot specialist. Trains at Evolve MMA Singapore.",
+                location: "Singapore",
+                followers: 71_500, totalWorkouts: 502,
+                photoURL: "https://cdn.onefc.com/wp-content/uploads/2019/01/Hiroki_Akimoto-hero-1200x1165-1-600x583.png"
+            ),
+            oneFighter(
+                handle: "shinya050983", name: "Shinya Aoki",
+                tier: .legend, verified: true, tone: .slate,
+                bio: "Tobikan Judan. One of MMA's most decorated submission artists. Evolve MMA. Paraestra lineage.",
+                location: "Singapore",
+                followers: 318_000, totalWorkouts: 1_120,
+                photoURL: "https://cdn.onefc.com/wp-content/uploads/2024/07/Shinya_Aoki-hero-1200x1165-1-600x583.png"
+            ),
+            oneFighter(
+                handle: "tatsumitsu_wada", name: "Tatsumitsu Wada",
+                tier: .silver, verified: true, tone: .forest,
+                bio: "The Sweeper. Technical flyweight grappler. Two-time DEEP Flyweight Champion. Yoshida Dojo.",
+                location: "Tokyo, Japan",
+                followers: 24_400, totalWorkouts: 320,
+                photoURL: "https://cdn.onefc.com/wp-content/uploads/2024/03/Tatsumitsu_Wada-hero-1200x1165-1-600x583.png"
+            ),
         ]
+    }
+
+    /// Factory for an ONE Championship roster athlete. Wraps the rich
+    /// seed data so the call sites in seedAthletes stay readable.
+    private static func oneFighter(
+        handle: String,
+        name: String,
+        tier: AthleteTier,
+        verified: Bool,
+        tone: AvatarTone,
+        bio: String,
+        location: String,
+        followers: Int,
+        totalWorkouts: Int,
+        photoURL: String?
+    ) -> Athlete {
+        // Stable id per handle so SwiftUI list diffing survives
+        // re-seeds.
+        let localId = "one_\(handle)"
+        return Athlete(
+            id: localId,
+            suiAddress: nil,
+            handle: handle,
+            displayName: name,
+            avatarTone: tone,
+            verified: verified,
+            tier: tier,
+            totalWorkouts: totalWorkouts,
+            followers: followers,
+            following: Int.random(in: 80...260),
+            bio: bio,
+            bannerTone: tone,
+            photoData: nil,
+            showcasedTrophyIDs: [],
+            location: location,
+            photoURL: photoURL
+        )
     }
 
     static func seedFeed(me: Athlete?, others: [Athlete], userWorkouts: [Workout]) -> [FeedItem] {
@@ -600,28 +702,43 @@ private extension SocialDataService {
             }
         }
 
-        // Others' workouts — fully fabricated but realistic.
+        // ONE-themed feed copy. Captions echo what fighters actually
+        // say in fight-week interviews — sharp, understated. Mix in a
+        // few nil captions so not every card carries text.
         let captions = [
-            "Clean miles. Negative split 🔥",
-            "Easy Zone 2. No complaints.",
-            "Hills. My legs hate me.",
-            "Coach Bennett told me to chill, and I obeyed.",
-            "Rainy one. Didn't miss a beat.",
-            "Group run! Pace was spicy.",
-            "PR on the canal segment. Long live QOM.",
+            "Six rounds, fresh legs. Camp's coming together.",
+            "Pad work felt clean today. Coach happy.",
+            "Roadwork before sunrise. Quiet streets, quiet mind.",
+            "Drilled the lock until it stopped feeling like work.",
+            "Sparring day. Walked out without a mark.",
+            "Long run. Just thinking about Ariake.",
             nil,
-            "Recovery ride. Coffee first, always.",
-            "Weekend long run. Peak week of block 2."
+            "Recovery + sauna. Cut starts Monday.",
+            "Body shots, body shots, body shots.",
+            "Clinch rounds with the boys. Filthy work.",
+            nil,
+            "Strength block, last heavy day before fight week.",
+        ]
+
+        // Workouts an ONE Championship fighter logs in camp. Striking
+        // and grappling dominate; conditioning + roadwork fill the
+        // rest; recovery is rare but visible.
+        let fightTypes: [WorkoutType] = [
+            .striking, .striking, .grappling, .mma, .conditioning,
+            .striking, .grappling, .run, .recovery, .lift,
+            .striking, .grappling
         ]
 
         var cursor = Date()
         for (i, athlete) in others.enumerated() {
             let dec = Double.random(in: 3*3600...48*3600)
             cursor = cursor.addingTimeInterval(-dec)
-            let type: WorkoutType = [.run, .run, .ride, .run, .walk, .lift, .yoga, .run, .hike, .hiit][i % 10]
+            let type: WorkoutType = fightTypes[i % fightTypes.count]
             let duration = Double.random(in: 1200...5400)
-            let dist: Double? = (type == .run || type == .ride || type == .walk || type == .hike)
-                ? Double.random(in: 2000...18000)
+            // Distance only makes sense for roadwork-style activities;
+            // striking / grappling sessions have no distance.
+            let dist: Double? = (type == .run || type == .conditioning)
+                ? Double.random(in: 4000...12000)
                 : nil
 
             let w = Workout(
@@ -659,9 +776,10 @@ private extension SocialDataService {
                 return Comment(
                     id: UUID(),
                     athlete: who,
-                    body: ["Sick pace 🔥", "Send it", "Big if true",
-                           "Catch up to me lol", "Absolute unit", "Easy day 💀",
-                           "Tip incoming", "You animal"].randomElement() ?? "Nice",
+                    body: ["Sharp work 🔥", "Hands look fast", "See you at Ariake",
+                           "Camp looks scary", "Filthy. Clinch is back.",
+                           "Body shots are landing 👊", "OSU 🥋",
+                           "Tip incoming", "Champ behavior"].randomElement() ?? "Sharp",
                     at: cursor.addingTimeInterval(Double.random(in: 500...12000)),
                     reactions: ["👏": Int.random(in: 0...4), "🔥": Int.random(in: 0...3)]
                         .filter { $0.value > 0 }
@@ -700,43 +818,48 @@ private extension SocialDataService {
     }
 
     static func seedClubs() -> [Club] {
-        [
-            Club(id: UUID(), name: "Brooklyn Dawn Patrol", handle: "dawn_patrol",
-                 tagline: "6AM on the bridge. No excuses.",
-                 description: "Dawn runs, cold coffee, warm hearts. Meet at the Brooklyn Bridge plaza, 6am sharp.",
-                 heroTone: .sunset, memberCount: 1248, sweatTreasury: 14_200,
-                 isJoined: true, isVerifiedBrand: false, weeklyKm: 842,
-                 tags: ["running", "NYC"], activeChallengeIDs: []),
-            Club(id: UUID(), name: "Rapha Cycling Club", handle: "rcc",
-                 tagline: "Ride for the story.",
-                 description: "Global members-only cycling club. Sponsored rides, shop access, regional hubs.",
-                 heroTone: .ocean, memberCount: 148_512, sweatTreasury: 820_000,
-                 isJoined: false, isVerifiedBrand: true, weeklyKm: 98_224,
-                 tags: ["cycling", "brand"], activeChallengeIDs: []),
-            Club(id: UUID(), name: "SuiSport ONE Founders' Circle", handle: "sui_core",
-                 tagline: "The earliest athletes on chain.",
-                 description: "Our OGs. Soulbound membership, founder-drop gear, monthly AMA with the team.",
-                 heroTone: .grape, memberCount: 412, sweatTreasury: 55_000,
-                 isJoined: true, isVerifiedBrand: true, weeklyKm: 4_120,
-                 tags: ["community"], activeChallengeIDs: []),
-            Club(id: UUID(), name: "Marathon Maniacs", handle: "26point2",
-                 tagline: "Because one is never enough.",
-                 description: "Multi-marathoners unite. Prove your finishes, stake on race PRs.",
-                 heroTone: .ember, memberCount: 8_442, sweatTreasury: 120_500,
-                 isJoined: false, isVerifiedBrand: false, weeklyKm: 21_440,
-                 tags: ["running", "marathon"], activeChallengeIDs: []),
-            Club(id: UUID(), name: "Trail Freaks", handle: "trailfreaks",
-                 tagline: "Dirt, elevation, mud. Repeat.",
-                 description: "Weekend trail crew. Share routes, beta, ride share. Verified elevation only.",
-                 heroTone: .forest, memberCount: 3_128, sweatTreasury: 18_200,
-                 isJoined: false, isVerifiedBrand: false, weeklyKm: 6_880,
-                 tags: ["trail", "ultra"], activeChallengeIDs: []),
-            Club(id: UUID(), name: "Lift & Chill", handle: "lift_chill",
-                 tagline: "Heavy lifts, heavier naps.",
-                 description: "Strength-first club. Program swaps, PR celebrations, weekly check-ins.",
-                 heroTone: .slate, memberCount: 2_240, sweatTreasury: 12_400,
+        // Real gyms in the ONE Championship orbit. Member counts /
+        // weekly volumes are illustrative for the demo; gyms + their
+        // affiliations are accurate (Evolve Singapore is ONE's home
+        // gym; Tribe Tokyo is the Tokyo MMA hub; Team Vasileus is
+        // Takeru's gym; Eiwa Sports Gym is Nadaka's home).
+        return [
+            Club(id: UUID(), name: "Evolve MMA — Singapore", handle: "evolvemma",
+                 tagline: "Asia's premier MMA gym. Where ONE Champions train.",
+                 description: "Home gym to a generation of ONE Champions including Aoki, Akimoto, and Christian Lee. Five locations across Singapore.",
+                 heroTone: .ember, memberCount: 14_800, sweatTreasury: 612_000,
+                 isJoined: true, isVerifiedBrand: true, weeklyKm: 0,
+                 tags: ["mma", "muay thai", "bjj", "Singapore"], activeChallengeIDs: []),
+            Club(id: UUID(), name: "Tribe Tokyo MMA", handle: "tribetokyo",
+                 tagline: "Where Wakamatsu and Miura sharpen the blade.",
+                 description: "Tokyo's high-pressure MMA room. Home of ONE Flyweight Champion Yuya Wakamatsu and atomweight grappler Ayaka Miura. Members-only sparring blocks Tuesday and Saturday.",
+                 heroTone: .grape, memberCount: 1_240, sweatTreasury: 88_500,
+                 isJoined: true, isVerifiedBrand: true, weeklyKm: 0,
+                 tags: ["mma", "grappling", "Tokyo"], activeChallengeIDs: []),
+            Club(id: UUID(), name: "Team Vasileus", handle: "team_vasileus",
+                 tagline: "Takeru's home dojo. Krusher kickboxing.",
+                 description: "Tokyo kickboxing dojo led by three-division K-1 champion Takeru Segawa. Pad rounds open to verified members on Wednesday nights.",
+                 heroTone: .ember, memberCount: 980, sweatTreasury: 64_200,
+                 isJoined: false, isVerifiedBrand: true, weeklyKm: 0,
+                 tags: ["kickboxing", "Tokyo"], activeChallengeIDs: []),
+            Club(id: UUID(), name: "Eiwa Sports Gym", handle: "eiwa_gym",
+                 tagline: "Where Nadaka started at 14.",
+                 description: "Saitama Muay Thai gym, training ground of ONE Atomweight Muay Thai Champion Nadaka. Pure Thai-style padwork.",
+                 heroTone: .sunset, memberCount: 612, sweatTreasury: 22_400,
                  isJoined: false, isVerifiedBrand: false, weeklyKm: 0,
-                 tags: ["strength"], activeChallengeIDs: [])
+                 tags: ["muay thai", "Saitama"], activeChallengeIDs: []),
+            Club(id: UUID(), name: "K-Clann", handle: "kclann",
+                 tagline: "Itsuki Hirata's Tokyo grappling room.",
+                 description: "K-Clann under Kazunori Yokota. Home base for atomweight submission specialist Itsuki Hirata.",
+                 heroTone: .ocean, memberCount: 410, sweatTreasury: 14_900,
+                 isJoined: false, isVerifiedBrand: false, weeklyKm: 0,
+                 tags: ["mma", "grappling", "Tokyo"], activeChallengeIDs: []),
+            Club(id: UUID(), name: "SuiSport ONE Founders' Circle", handle: "sui_core",
+                 tagline: "The first fans on-chain.",
+                 description: "Soulbound membership for the earliest fans to log a fighter-designed camp on SuiSport ONE. Founder-drop gear and monthly AMAs.",
+                 heroTone: .slate, memberCount: 412, sweatTreasury: 55_000,
+                 isJoined: true, isVerifiedBrand: true, weeklyKm: 0,
+                 tags: ["community"], activeChallengeIDs: []),
         ]
     }
 
@@ -746,62 +869,83 @@ private extension SocialDataService {
         func plus(_ d: Int) -> Date { cal.date(byAdding: .day, value: d, to: now) ?? now }
         func minus(_ d: Int) -> Date { cal.date(byAdding: .day, value: -d, to: now) ?? now }
 
+        // Hackathon framing: every challenge is a fighter-designed
+        // camp tied to ONE Samurai 1 (April 29, 2026, Ariake Arena).
+        // The headline is the full fight-week camp — that's the demo
+        // hero. Fighter-specific blocks underneath let users follow
+        // a single athlete's program (Wakamatsu / Takeru / Ayaka /
+        // Nadaka) and earn a soulbound trophy from that fighter on
+        // completion.
+        let one = Sponsor(name: "ONE Championship", handle: "onechampionship",
+                          color: "#D90429")
+
         return [
             Challenge(
-                id: UUID(), title: "April 100k",
-                subtitle: "Run 100 km this month",
-                kind: .distance,
-                sponsor: nil,
-                goal: ChallengeGoal(kind: .distance, target: 100, unit: "km"),
-                currentProgress: 0.42,
-                startsAt: minus(23), endsAt: plus(7),
-                stakeSweat: 0, prizePoolSweat: 0, participants: 28_411,
-                isJoined: true, hero: .ember, badgeIcon: "medal.star.fill"
-            ),
-            Challenge(
-                id: UUID(), title: "Sub-3 May",
-                subtitle: "Nike x SuiSport ONE marathon prep block",
+                id: UUID(), title: "ONE Samurai 1 — Fight Week",
+                subtitle: "Complete the official fight-week camp with the Samurai card",
                 kind: .workouts,
-                sponsor: Sponsor(name: "Nike", handle: "nike", color: "#111111"),
-                goal: ChallengeGoal(kind: .workouts, target: 24, unit: "workouts"),
+                sponsor: one,
+                goal: ChallengeGoal(kind: .workouts, target: 14, unit: "sessions"),
                 currentProgress: 0.0,
-                startsAt: plus(7), endsAt: plus(38),
-                stakeSweat: 50, prizePoolSweat: 125_000, participants: 1_402,
-                isJoined: false, hero: .grape, badgeIcon: "figure.run.square.stack.fill"
+                startsAt: minus(2), endsAt: plus(5),
+                stakeSweat: 100, prizePoolSweat: 250_000, participants: 8_412,
+                isJoined: true, hero: .ember, badgeIcon: "trophy.fill"
             ),
             Challenge(
-                id: UUID(), title: "Streak Week",
-                subtitle: "Log a workout every day this week",
+                id: UUID(), title: "Wakamatsu Pressure Camp",
+                subtitle: "10 sessions, Yuya's flyweight pressure-striking block",
+                kind: .workouts,
+                sponsor: one,
+                goal: ChallengeGoal(kind: .workouts, target: 10, unit: "sessions"),
+                currentProgress: 0.30,
+                startsAt: minus(7), endsAt: plus(14),
+                stakeSweat: 50, prizePoolSweat: 88_000, participants: 2_104,
+                isJoined: true, hero: .ember, badgeIcon: "figure.boxing"
+            ),
+            Challenge(
+                id: UUID(), title: "Takeru Krusher 14",
+                subtitle: "Fourteen days of K-1 conditioning + pad rounds",
+                kind: .workouts,
+                sponsor: one,
+                goal: ChallengeGoal(kind: .workouts, target: 14, unit: "sessions"),
+                currentProgress: 0.0,
+                startsAt: plus(1), endsAt: plus(15),
+                stakeSweat: 75, prizePoolSweat: 142_000, participants: 3_988,
+                isJoined: false, hero: .grape, badgeIcon: "bolt.heart.fill"
+            ),
+            Challenge(
+                id: UUID(), title: "Ayaka Submission Block",
+                subtitle: "Atomweight grappling drills inspired by Tribe Tokyo",
+                kind: .workouts,
+                sponsor: one,
+                goal: ChallengeGoal(kind: .workouts, target: 12, unit: "sessions"),
+                currentProgress: 0.16,
+                startsAt: minus(5), endsAt: plus(16),
+                stakeSweat: 40, prizePoolSweat: 64_500, participants: 1_482,
+                isJoined: false, hero: .rose, badgeIcon: "figure.wrestling"
+            ),
+            Challenge(
+                id: UUID(), title: "Nadaka Lumpinee Mile",
+                subtitle: "30 days of pure Thai-style padwork + roadwork",
+                kind: .workouts,
+                sponsor: one,
+                goal: ChallengeGoal(kind: .workouts, target: 30, unit: "sessions"),
+                currentProgress: 0.07,
+                startsAt: minus(3), endsAt: plus(27),
+                stakeSweat: 60, prizePoolSweat: 96_400, participants: 1_812,
+                isJoined: false, hero: .sunset, badgeIcon: "figure.martial.arts"
+            ),
+            Challenge(
+                id: UUID(), title: "Roadwork Streak",
+                subtitle: "Real fighters run. Log roadwork every day this week.",
                 kind: .streak,
                 sponsor: nil,
                 goal: ChallengeGoal(kind: .streak, target: 7, unit: "days"),
                 currentProgress: 0.71,
                 startsAt: minus(5), endsAt: plus(2),
                 stakeSweat: 25, prizePoolSweat: 18_240, participants: 3_221,
-                isJoined: true, hero: .sunset, badgeIcon: "flame.fill"
+                isJoined: true, hero: .ocean, badgeIcon: "flame.fill"
             ),
-            Challenge(
-                id: UUID(), title: "Everest in April",
-                subtitle: "Climb 8,848 m total",
-                kind: .elevation,
-                sponsor: nil,
-                goal: ChallengeGoal(kind: .elevation, target: 8848, unit: "m"),
-                currentProgress: 0.08,
-                startsAt: minus(23), endsAt: plus(7),
-                stakeSweat: 0, prizePoolSweat: 0, participants: 5_120,
-                isJoined: false, hero: .forest, badgeIcon: "mountain.2.fill"
-            ),
-            Challenge(
-                id: UUID(), title: "Canal Loop TT",
-                subtitle: "Beat your best time on the 5k canal segment",
-                kind: .segment,
-                sponsor: Sponsor(name: "On", handle: "on_running", color: "#FF5300"),
-                goal: ChallengeGoal(kind: .segment, target: 1, unit: "attempt"),
-                currentProgress: 0.0,
-                startsAt: minus(1), endsAt: plus(14),
-                stakeSweat: 10, prizePoolSweat: 4_200, participants: 288,
-                isJoined: false, hero: .ocean, badgeIcon: "stopwatch.fill"
-            )
         ]
     }
 

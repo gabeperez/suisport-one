@@ -32,6 +32,9 @@ import {
     submitWorkoutOnChain,
 } from "./sui.js";
 import { resolveOperatorAndProfile } from "./routes/workouts.js";
+import {
+    deriveFormulaComponents, computeFinalReward,
+} from "./sweat_formula.js";
 
 const MAX_PER_TICK = 20;
 const MAX_RETRIES = 10;
@@ -106,7 +109,18 @@ export async function retryPendingWorkoutsTick(env: Env): Promise<RetryTickResul
             const { operator, profileId } = await resolveOperatorAndProfile(
                 env, row.athlete_id
             );
-            const rewardAmount = BigInt(row.points) * 1_000_000_000n;
+            // Reconciler doesn't have access to PR / challenge state at
+            // the original submit time, so it conservatively flags
+            // those as false. The athlete still gets the base + decay
+            // + streak components — those derive from current D1.
+            const components = await deriveFormulaComponents(env, {
+                baseSweatPoints: row.points,
+                workoutType: row.type,
+                athleteId: row.athlete_id,
+                isPersonalRecord: false,
+                isChallengeContribution: false,
+            });
+            const finalReward = computeFinalReward(components);
             const onChain = await submitWorkoutOnChain(env, {
                 athlete: row.athlete_id,
                 profileObjectId: profileId,
@@ -116,7 +130,12 @@ export async function retryPendingWorkoutsTick(env: Env): Promise<RetryTickResul
                 distanceM: Math.floor(row.distance_meters ?? 0),
                 calories: Math.floor(row.energy_kcal ?? 0),
                 walrusBlobId: new TextEncoder().encode(row.walrus_blob_id),
-                rewardAmount,
+                baseReward: components.baseReward,
+                prBonus: components.prBonus,
+                challengeBonus: components.challengeBonus,
+                firstTimeBonus: components.firstTimeBonus,
+                streakDays: components.streakDays,
+                repetitionDecayBps: components.repetitionDecayBps,
             }, operator);
             await env.DB.prepare(
                 `UPDATE workouts
@@ -124,7 +143,7 @@ export async function retryPendingWorkoutsTick(env: Env): Promise<RetryTickResul
                      onchain_last_retry_at = ?, onchain_last_error = NULL
                  WHERE id = ?`
             ).bind(
-                onChain.txDigest, Number(rewardAmount), now, row.id
+                onChain.txDigest, Number(finalReward), now, row.id
             ).run();
             succeeded++;
         } catch (err) {

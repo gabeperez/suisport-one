@@ -161,9 +161,15 @@ export function suiClient(env: SuiEnv): SuiJsonRpcClient {
  *    BLAKE2b-256(
  *      athlete || nonce || expires_at_ms_be ||
  *      workout_type || timestamp_ms_be || duration_s_be ||
- *      distance_m_be || calories_be || walrus_blob_id || reward_amount_be
+ *      distance_m_be || calories_be || walrus_blob_id ||
+ *      base_reward_be || pr_bonus || challenge_bonus ||
+ *      first_time_bonus || streak_days || repetition_decay_bps_be
  *    )
- *  All integers are big-endian LEB-less; plain fixed-width big-endian. */
+ *  All integers are big-endian fixed-width. The FINAL reward amount
+ *  is intentionally NOT in the digest — the contract recomputes it
+ *  from the formula components, so the off-chain server can lie about
+ *  inputs (and get caught by the indexer's WorkoutScored event vs.
+ *  RewardMinted comparison) but cannot lie about the math. */
 export function buildAttestationDigest(input: {
     athlete: string;              // 0x-prefixed sui address
     nonce: Uint8Array;            // 16 bytes, random per submission
@@ -174,7 +180,12 @@ export function buildAttestationDigest(input: {
     distanceM: number;            // u32
     calories: number;             // u32
     walrusBlobId: Uint8Array;
-    rewardAmount: bigint;         // u64
+    baseReward: bigint;           // u64 — pre-bonus, pre-decay
+    prBonus: 0 | 1;
+    challengeBonus: 0 | 1;
+    firstTimeBonus: 0 | 1;
+    streakDays: number;           // 0..255
+    repetitionDecayBps: number;   // u16, 5000..10000
 }): Uint8Array {
     const addr = hexToBytes(input.athlete);
     const parts: Uint8Array[] = [
@@ -187,7 +198,12 @@ export function buildAttestationDigest(input: {
         u32BE(input.distanceM),
         u32BE(input.calories),
         input.walrusBlobId,
-        u64BE(input.rewardAmount),
+        u64BE(input.baseReward),
+        new Uint8Array([input.prBonus]),
+        new Uint8Array([input.challengeBonus]),
+        new Uint8Array([input.firstTimeBonus]),
+        new Uint8Array([Math.max(0, Math.min(255, input.streakDays))]),
+        u16BE(input.repetitionDecayBps),
     ];
     const concatenated = concat(parts);
     return blake2b(concatenated, { dkLen: 32 });
@@ -218,7 +234,17 @@ export async function submitWorkoutOnChain(
         distanceM: number;
         calories: number;
         walrusBlobId: Uint8Array;   // raw bytes
-        rewardAmount: bigint;
+        // Formula inputs — see cloudflare/src/sweat_formula.ts and
+        // move/suisport/sources/rewards_engine.move. The contract
+        // computes the final mint amount from these signed components;
+        // we don't pass a finalReward here because the contract owns
+        // the math.
+        baseReward: bigint;
+        prBonus: 0 | 1;
+        challengeBonus: 0 | 1;
+        firstTimeBonus: 0 | 1;
+        streakDays: number;
+        repetitionDecayBps: number;
     },
     operator?: Ed25519Keypair
 ): Promise<{ txDigest: string; eventDigests: unknown[] }> {
@@ -237,7 +263,12 @@ export async function submitWorkoutOnChain(
         distanceM: input.distanceM,
         calories: input.calories,
         walrusBlobId: input.walrusBlobId,
-        rewardAmount: input.rewardAmount,
+        baseReward: input.baseReward,
+        prBonus: input.prBonus,
+        challengeBonus: input.challengeBonus,
+        firstTimeBonus: input.firstTimeBonus,
+        streakDays: input.streakDays,
+        repetitionDecayBps: input.repetitionDecayBps,
     });
     const signature = signAttestation(env.ORACLE_PRIVATE_KEY!, digest);
 
@@ -258,7 +289,12 @@ export async function submitWorkoutOnChain(
             tx.pure.u32(input.distanceM),
             tx.pure.u32(input.calories),
             tx.pure.vector("u8", Array.from(input.walrusBlobId)),
-            tx.pure.u64(input.rewardAmount),
+            tx.pure.u64(input.baseReward),
+            tx.pure.u8(input.prBonus),
+            tx.pure.u8(input.challengeBonus),
+            tx.pure.u8(input.firstTimeBonus),
+            tx.pure.u8(Math.max(0, Math.min(255, input.streakDays))),
+            tx.pure.u16(input.repetitionDecayBps),
             tx.pure.vector("u8", Array.from(signature)),
             tx.pure.vector("u8", Array.from(digest)),
         ],
@@ -355,6 +391,12 @@ function hexToBytes(hex: string): Uint8Array {
         out[i] = parseInt(padded.substr(i * 2, 2), 16);
     }
     return out;
+}
+
+function u16BE(n: number): Uint8Array {
+    const b = new Uint8Array(2);
+    new DataView(b.buffer).setUint16(0, n & 0xffff, false);
+    return b;
 }
 
 function u32BE(n: number): Uint8Array {

@@ -6,6 +6,9 @@ import { parseBody, SubmitWorkoutSchema } from "../validation.js";
 import { vetWorkout } from "../fraud.js";
 import { walrusUploadSafe } from "../walrus.js";
 import {
+    deriveFormulaComponents, computeFinalReward, describeReward,
+} from "../sweat_formula.js";
+import {
     hasSuiConfig, submitWorkoutOnChain, suiClient,
     operatorKeypairForAthlete, operatorKeypairByAddress,
 } from "../sui.js";
@@ -127,7 +130,31 @@ workouts.post("/", async (c) => {
             // First-time athletes get a hash-bucketed operator and
             // that address gets persisted during ensureUserProfile.
             const { operator, profileId } = await resolveOperatorAndProfile(c.env, athleteId);
-            const rewardAmount = BigInt(body.points) * 1_000_000_000n; // 1 point = 1 SWEAT with 9 decimals
+
+            // Derive the formula components server-side. The contract
+            // computes the final mint from these signed inputs, so we
+            // never trust `body.points` directly for the on-chain
+            // amount — addresses the audit's §12 BLOCKER.
+            //
+            // PR + challenge bonuses are computed inline here so the
+            // signed digest reflects the truth at submit time. Cheap
+            // D1 lookups; both ride the existing indexes.
+            const isPersonalRecord = await detectPersonalRecord(c.env, athleteId, body);
+            const isChallengeContribution = await detectChallengeContribution(c.env, athleteId, body.type);
+            // Recompute points server-side from the validated workout
+            // payload — never trust the client's `body.points` for
+            // the mint amount. Mirrors the iOS SweatPoints.forWorkout
+            // formula but uses the server's vetted distance + duration.
+            const serverPoints = computeBasePointsServerSide(body);
+            const components = await deriveFormulaComponents(c.env, {
+                baseSweatPoints: serverPoints,
+                workoutType: body.type,
+                athleteId,
+                isPersonalRecord,
+                isChallengeContribution,
+            });
+            const finalReward = computeFinalReward(components);
+
             const onChain = await submitWorkoutOnChain(c.env, {
                 athlete: athleteId,
                 profileObjectId: profileId,
@@ -137,10 +164,15 @@ workouts.post("/", async (c) => {
                 distanceM: Math.floor(body.distanceMeters ?? 0),
                 calories: Math.floor(body.energyKcal ?? 0),
                 walrusBlobId: new TextEncoder().encode(walrusResult.blobId),
-                rewardAmount,
+                baseReward: components.baseReward,
+                prBonus: components.prBonus,
+                challengeBonus: components.challengeBonus,
+                firstTimeBonus: components.firstTimeBonus,
+                streakDays: components.streakDays,
+                repetitionDecayBps: components.repetitionDecayBps,
             }, operator);
             txDigest = onChain.txDigest;
-            sweatMinted = Number(rewardAmount);
+            sweatMinted = Number(finalReward);
             pipelineStatus = "executed";
             await c.env.DB.prepare(
                 `UPDATE workouts
@@ -484,4 +516,85 @@ async function writePersonalRecords(
         ));
     }
     if (stmts.length > 0) await env.DB.batch(stmts);
+}
+
+/// Server-side base-points recompute. Mirrors iHealth/Models/
+/// SweatPoints.forWorkout — keep the two in lockstep when either
+/// formula changes (audit §12 BLOCKER, both formulas now agree on
+/// the server-truth value of a workout regardless of what the iOS
+/// client claims).
+function computeBasePointsServerSide(w: {
+    type: string;
+    durationSeconds: number;
+    distanceMeters?: number | null;
+    isUserEntered?: boolean;
+}): number {
+    const minutes = w.durationSeconds / 60;
+    const km = (w.distanceMeters ?? 0) / 1000;
+    let base: number;
+    switch (w.type) {
+        case "run": case "walk": case "ride": case "hike":
+            base = km * 60 + minutes * 2; break;
+        case "swim":
+            base = km * 300 + minutes * 4; break;
+        case "lift": case "yoga": case "hiit":
+            base = minutes * 6; break;
+        case "mma":
+            base = minutes * 10; break;          // hardest session
+        case "striking": case "grappling":
+            base = minutes * 8; break;
+        case "conditioning":
+            base = km * 40 + minutes * 6; break; // bonus when route logged
+        case "recovery":
+            base = minutes * 3; break;
+        default:
+            base = minutes * 4; break;            // unknown type — conservative
+    }
+    // Manually-entered workouts (no Apple Watch attestation) cap at
+    // 30% of the calculated value — same rule as iOS.
+    if (w.isUserEntered) base *= 0.3;
+    return Math.max(0, Math.floor(base));
+}
+
+/// True when the workout's pace beats every existing PR row for the
+/// athlete (any tracked distance — 1k/5k/10k/half/full). Cheap query;
+/// uses idx_personal_records_athlete from the schema.
+async function detectPersonalRecord(
+    env: Env, athleteId: string, w: { type: string; durationSeconds: number; distanceMeters?: number | null }
+): Promise<boolean> {
+    if (w.type !== "run") return false;          // PRs tracked for runs only
+    if (!w.distanceMeters || w.distanceMeters < 1000) return false;
+    // Compute this workout's pace in seconds-per-km — beat anyone's
+    // best for ANY shorter distance == PR. (We only consider distances
+    // <= the actual workout, since you can't claim a marathon PR
+    // from a 5k.)
+    const paceSecPerKm = w.durationSeconds / (w.distanceMeters / 1000);
+    const row = await env.DB.prepare(
+        `SELECT MIN(best_time_seconds * 1.0 / NULLIF(distance_meters, 0) * 1000) AS best_pace
+         FROM personal_records
+         WHERE athlete_id = ?
+           AND distance_meters <= ?`
+    ).bind(athleteId, w.distanceMeters).first<{ best_pace: number | null }>();
+    if (!row || row.best_pace == null) return true;   // first ever ≥1km run = PR
+    return paceSecPerKm < row.best_pace;
+}
+
+/// True when the athlete has joined an active challenge that this
+/// workout type can contribute to. Approximation — full
+/// challenge-rules engine is out of scope for the formula derivation.
+async function detectChallengeContribution(
+    env: Env, athleteId: string, workoutType: string
+): Promise<boolean> {
+    const row = await env.DB.prepare(
+        `SELECT 1 FROM challenge_participants cp
+         JOIN challenges c ON c.id = cp.challenge_id
+         WHERE cp.athlete_id = ?
+           AND c.starts_at <= unixepoch()
+           AND c.ends_at   >= unixepoch()
+         LIMIT 1`
+    ).bind(athleteId).first();
+    return !!row;
+    // workoutType currently unused — every active joined challenge
+    // counts. When fight camps gain a `kind` filter we'll match.
+    void workoutType;
 }

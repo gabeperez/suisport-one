@@ -4,6 +4,18 @@
 >
 > Hackathon submission — **Sui × ONE Samurai Tokyo Builders Arena**, April 2026.
 
+## 🏯 Submission quick links
+
+| | |
+|---|---|
+| **GitHub** | [`gabeperez/suisport-one`](https://github.com/gabeperez/suisport-one) |
+| **Demo video** | _(speed-run script in [`DEMO_SPEEDRUN.md`](./DEMO_SPEEDRUN.md); upload URL added before submission)_ |
+| **Cover image** | [`cover.html`](./cover.html) — open in Safari, screenshot the 1200×630 frame |
+| **Live testnet** | Worker: `suisport-api.perez-jg22.workers.dev` · Move package on Sui testnet: `0x966699…b452b` |
+| **Pitch outline** | [`PITCH.md`](./PITCH.md) (5-min slide-by-slide) |
+| **Repo split context** | [`docs/REPO_SPLIT.md`](./docs/REPO_SPLIT.md) — this is the hackathon fork; the canonical SuiSport stays at [`gabeperez/suisport`](https://github.com/gabeperez/suisport) |
+
+
 SuiSport ONE turns ONE Championship fighters into your training partner. Pick a fighter, run their official fight-week camp inside the app, and prove every session on the Sui blockchain. Apple Watch verifies the workout, Walrus stores the canonical proof, the Move package mints SWEAT rewards and a soulbound trophy from that fighter on completion.
 
 It's a fan-engagement product the moment ONE wants to ship it, and a real consumer app from day one.

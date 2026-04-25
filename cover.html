@@ -1,0 +1,258 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>SuiSport ONE · cover</title>
+<!--
+  Self-rendering submission cover for the Sui x ONE Samurai hackathon.
+  Designed to be screenshotted at exactly 1200 x 630 (DeepSurge / OG
+  image standard). Open in Safari, View > Enter Full Screen, then
+  Cmd-Shift-4 + Space and screenshot the .cover element. macOS will
+  capture the inner content at native resolution.
+
+  Visual brief: the same deep-red → black gradient + faint Hinomaru
+  sun-disc the in-app Samurai hero card uses, so the cover is visibly
+  the same product. ONE-Championship red sampled from their site,
+  white headlines in the condensed weight ONE uses for fight posters.
+-->
+<style>
+    :root { color-scheme: dark; }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body {
+        width: 100%;
+        height: 100%;
+        background: #050507;
+        font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display",
+                     "SF Pro Text", "Helvetica Neue", sans-serif;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: #fff;
+    }
+
+    .cover {
+        width: 1200px;
+        height: 630px;
+        position: relative;
+        overflow: hidden;
+        background:
+            linear-gradient(135deg,
+                #050507 0%,
+                #1a0205 40%,
+                #6a020e 80%,
+                #d90429 100%);
+        box-shadow: 0 30px 80px rgba(0,0,0,0.6);
+    }
+
+    /* Faint Hinomaru sun-disc echo (Japanese flag motif) */
+    .sun {
+        position: absolute;
+        right: -120px;
+        top: -180px;
+        width: 720px;
+        height: 720px;
+        border-radius: 50%;
+        background: radial-gradient(circle at center,
+            rgba(255,255,255,0.10) 0%,
+            rgba(255,255,255,0.04) 55%,
+            transparent 75%);
+        filter: blur(0.5px);
+    }
+
+    /* Subtle scanlines/texture for the warrior poster feel */
+    .grain {
+        position: absolute;
+        inset: 0;
+        background-image: repeating-linear-gradient(
+            0deg,
+            rgba(255,255,255,0.012) 0px,
+            rgba(255,255,255,0.012) 1px,
+            transparent 1px,
+            transparent 3px
+        );
+        pointer-events: none;
+    }
+
+    .content {
+        position: absolute;
+        inset: 64px;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+    }
+
+    /* Top-left: brand stamp */
+    .brand-row {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+    }
+    .brand-mark {
+        width: 56px;
+        height: 56px;
+        border-radius: 14px;
+        background: linear-gradient(135deg, #fff 0%, #f6f6f6 100%);
+        color: #d90429;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: 900;
+        font-size: 30px;
+        letter-spacing: -0.04em;
+        box-shadow: 0 10px 30px rgba(217,4,41,0.35);
+    }
+    .brand-text {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+    }
+    .brand-name {
+        font-size: 22px;
+        font-weight: 800;
+        letter-spacing: -0.01em;
+    }
+    .brand-name .one {
+        color: #ff8a8a;
+        margin-left: 6px;
+    }
+    .brand-tag {
+        font-size: 12px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.18em;
+        color: rgba(255,255,255,0.6);
+    }
+
+    /* Center: headline */
+    .headline {
+        display: flex;
+        flex-direction: column;
+        gap: 18px;
+    }
+    .headline h1 {
+        font-size: 96px;
+        font-weight: 900;
+        line-height: 0.96;
+        letter-spacing: -0.035em;
+    }
+    .headline h1 em {
+        font-style: normal;
+        background: linear-gradient(135deg, #ff8a8a 0%, #ffe2e2 100%);
+        -webkit-background-clip: text;
+        background-clip: text;
+        -webkit-text-fill-color: transparent;
+    }
+    .headline p {
+        font-size: 22px;
+        font-weight: 500;
+        color: rgba(255,255,255,0.78);
+        max-width: 760px;
+        line-height: 1.4;
+    }
+
+    /* Bottom strip */
+    .strip {
+        display: flex;
+        align-items: flex-end;
+        justify-content: space-between;
+        gap: 24px;
+    }
+    .meta {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+    }
+    .meta .small {
+        font-size: 11px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.14em;
+        color: rgba(255,255,255,0.55);
+    }
+    .meta .big {
+        font-size: 16px;
+        font-weight: 700;
+        color: rgba(255,255,255,0.92);
+    }
+    .pills {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+        max-width: 460px;
+        justify-content: flex-end;
+    }
+    .pill {
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        padding: 6px 12px;
+        border-radius: 999px;
+        background: rgba(255,255,255,0.10);
+        border: 1px solid rgba(255,255,255,0.18);
+        color: rgba(255,255,255,0.92);
+    }
+    .pill.red {
+        background: rgba(217,4,41,0.45);
+        border-color: rgba(255,138,138,0.45);
+    }
+
+    /* Bottom right: event stamp */
+    .event {
+        position: absolute;
+        right: 64px;
+        bottom: 64px;
+        text-align: right;
+    }
+
+    /* If the user opens fullscreen and the page can't perfectly hit
+       1200 x 630 on their display, this ensures the cover element
+       stays a fixed canvas centered in the viewport. */
+    @media (max-width: 1300px) {
+        .cover { transform: scale(0.95); }
+    }
+</style>
+</head>
+<body>
+    <div class="cover">
+        <div class="sun"></div>
+        <div class="grain"></div>
+
+        <div class="content">
+
+            <!-- Brand stamp top-left -->
+            <div class="brand-row">
+                <div class="brand-mark">S</div>
+                <div class="brand-text">
+                    <div class="brand-name">SuiSport<span class="one">ONE</span></div>
+                    <div class="brand-tag">Sui · ONE Samurai · Tokyo · 2026</div>
+                </div>
+            </div>
+
+            <!-- Headline middle -->
+            <div class="headline">
+                <h1>Train like<br/><em>a fighter.</em></h1>
+                <p>
+                    Verified workouts, on-chain rewards, fighter-designed camps.
+                    Built for ONE Championship's Japanese audience on Sui.
+                </p>
+            </div>
+
+            <!-- Bottom row -->
+            <div class="strip">
+                <div class="meta">
+                    <div class="small">github</div>
+                    <div class="big">github.com/gabeperez/suisport-one</div>
+                </div>
+                <div class="pills">
+                    <span class="pill red">ONE Samurai 1</span>
+                    <span class="pill">Sui Move</span>
+                    <span class="pill">Walrus</span>
+                    <span class="pill">Enoki zkLogin</span>
+                    <span class="pill">App Attest</span>
+                </div>
+            </div>
+        </div>
+    </div>
+</body>
+</html>

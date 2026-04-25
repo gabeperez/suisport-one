@@ -190,7 +190,13 @@ workouts.get("/:id/onchain", async (c) => {
     const explorer = net === "mainnet"
         ? "https://suiscan.xyz/mainnet/tx"
         : "https://suiscan.xyz/testnet/tx";
-    const walrusViewer = "https://walruscan.com/testnet/blob";
+    // Walrus viewer URL — testnet vs mainnet differ in path. Hardcoding
+    // to testnet would break the in-app "View on Walrus" link the
+    // moment we flip SUI_NETWORK to mainnet, so derive from the same
+    // env var as the Sui explorer above.
+    const walrusViewer = net === "mainnet"
+        ? "https://walruscan.com/mainnet/blob"
+        : "https://walruscan.com/testnet/blob";
     return c.json({
         workoutId: row.id,
         verified: row.verified === 1,

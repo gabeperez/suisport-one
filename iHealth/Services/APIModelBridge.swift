@@ -76,7 +76,9 @@ extension Workout {
             isUserEntered: false,
             points: dto.points,
             verified: dto.verified,
-            synced: true
+            synced: true,
+            suiTxDigest: dto.suiTxDigest,
+            walrusBlobId: dto.walrusBlobId
         )
     }
 }

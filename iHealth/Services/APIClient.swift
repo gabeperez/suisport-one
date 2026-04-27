@@ -413,6 +413,12 @@ nonisolated struct WorkoutDTO: Decodable, Hashable {
     let points: Int
     let verified: Bool
     let isDemo: Bool
+    /// Sui tx digest for this workout's on-chain mint. Nil when the
+    /// workout never reached the chain (stub mode, seed fixtures,
+    /// or pending mint awaiting retry).
+    let suiTxDigest: String?
+    let walrusBlobId: String?
+    let sweatMinted: Int?
 }
 
 nonisolated struct FeedItemDTO: Decodable, Hashable, Identifiable {

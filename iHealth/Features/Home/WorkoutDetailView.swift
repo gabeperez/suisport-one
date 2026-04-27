@@ -21,7 +21,7 @@ struct WorkoutDetailView: View {
                     header(item)
                     map(item)
                     statsGrid(item)
-                    verifiedStrip
+                    verifiedStrip(for: item)
                     captionBlock(item)
                     kudosStrip(item)
                     commentsList(item)
@@ -206,15 +206,27 @@ struct WorkoutDetailView: View {
 
     // MARK: - Verified strip
 
-    /// Suiscan link to the SuiSport ONE Move package. Tapping the
-    /// verified strip opens it so users (and judges) can see the
-    /// contract + recent on-chain mints flowing through it.
+    /// Suiscan link to the SuiSport ONE Move package — used as the
+    /// fallback when a feed item isn't on chain (seed fixtures, pending
+    /// retries). Real workouts deep-link to their own tx digest.
     private static let packageExplorerURL = URL(
         string: "https://suiscan.xyz/testnet/object/0x15c33f76fba3bc10a327d9792c7948e1eefd0162a13e7a0ac4774d7b8fec2b2c"
     )!
 
-    private var verifiedStrip: some View {
-        Link(destination: Self.packageExplorerURL) {
+    /// Per-workout Suiscan tx URL when the workout has a real on-chain
+    /// mint. Falls back to the package object page (canonical "where
+    /// these mints come from") for fixtures and pending mints. Each
+    /// real workout deep-links to its own unique transaction.
+    private func verifiedExplorerURL(for item: FeedItem) -> URL {
+        if let digest = item.workout.suiTxDigest, !digest.isEmpty {
+            return URL(string: "https://suiscan.xyz/testnet/tx/\(digest)") ?? Self.packageExplorerURL
+        }
+        return Self.packageExplorerURL
+    }
+
+    private func verifiedStrip(for item: FeedItem) -> some View {
+        let isOnChain = (item.workout.suiTxDigest?.isEmpty == false)
+        return Link(destination: verifiedExplorerURL(for: item)) {
             HStack(spacing: 10) {
                 Image(systemName: "checkmark.seal.fill")
                     .font(.system(size: 16, weight: .bold))
@@ -223,13 +235,15 @@ struct WorkoutDetailView: View {
                     Text("Verified workout")
                         .font(.system(size: 14, weight: .semibold, design: .rounded))
                         .foregroundStyle(Theme.Color.ink)
-                    Text("Attested via Apple Health + device signature")
+                    Text(isOnChain
+                         ? "Tap to view this workout's tx on Suiscan"
+                         : "Demo session — tap to view the SuiSport ONE contract")
                         .font(.system(size: 12))
                         .foregroundStyle(Theme.Color.inkSoft)
                 }
                 Spacer()
                 HStack(spacing: 4) {
-                    Text("on Sui")
+                    Text(isOnChain ? "on Sui" : "package")
                         .font(.labelMono)
                     Image(systemName: "arrow.up.right.square")
                         .font(.system(size: 11, weight: .semibold))
@@ -243,7 +257,9 @@ struct WorkoutDetailView: View {
             )
         }
         .buttonStyle(.plain)
-        .accessibilityHint("Opens the SuiSport ONE Move package on Suiscan")
+        .accessibilityHint(isOnChain
+                           ? "Opens this workout's transaction on Suiscan"
+                           : "Opens the SuiSport ONE Move package on Suiscan")
     }
 
     // MARK: - Caption

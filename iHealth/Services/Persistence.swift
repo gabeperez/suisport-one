@@ -68,19 +68,25 @@ enum AppPersistence {
     }()
 
     // MARK: - currentUser
+    //
+    // Marked `@MainActor` because User's synthesized Codable conformance
+    // is MainActor-isolated (project default actor) and can't be used
+    // from a nonisolated context in Swift 6 strict mode. Both call
+    // sites (AppState.init + AppState.currentUser didSet) are already
+    // MainActor, so this is a tightening of the contract that costs
+    // nothing. UserDefaults writes are fast + in-memory + delayed-flush,
+    // so we don't lose meaningful main-thread headroom here.
 
-    nonisolated static func saveUser(_ user: User?) {
-        writeQueue.async {
-            let d = UserDefaults.standard
-            if let user, let data = try? encoder.encode(user) {
-                d.set(data, forKey: Key.currentUser)
-            } else {
-                d.removeObject(forKey: Key.currentUser)
-            }
+    @MainActor static func saveUser(_ user: User?) {
+        let d = UserDefaults.standard
+        if let user, let data = try? encoder.encode(user) {
+            d.set(data, forKey: Key.currentUser)
+        } else {
+            d.removeObject(forKey: Key.currentUser)
         }
     }
 
-    nonisolated static func loadUser() -> User? {
+    @MainActor static func loadUser() -> User? {
         guard let data = UserDefaults.standard.data(forKey: Key.currentUser) else {
             return nil
         }

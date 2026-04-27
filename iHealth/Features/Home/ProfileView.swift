@@ -8,6 +8,7 @@ struct ProfileView: View {
     @State private var showShare = false
     @State private var showAddShoe = false
     @State private var showRewards = false
+    @State private var showActivity = false
     @State private var pendingComingSoon: ComingSoonKind?
     @State private var selectedTrophy: Trophy?
     @State private var selectedAthleteId: String?
@@ -30,6 +31,7 @@ struct ProfileView: View {
                     streakRow
                     lifetime
                     activityChart
+                    activityCard
                     personalRecords
                     gearSection
                     trophyPreview
@@ -72,6 +74,11 @@ struct ProfileView: View {
             .sheet(isPresented: $showEdit) { EditProfileSheet() }
             .sheet(isPresented: $showAddShoe) { AddShoeSheet() }
             .sheet(isPresented: $showRewards) { RewardsView() }
+            .sheet(isPresented: $showActivity) {
+                UploadPastWorkoutsSheet()
+                    .presentationDetents([.large])
+                    .presentationCornerRadius(Theme.Radius.xl)
+            }
             .sheet(isPresented: $showShare) {
                 ShareSheet(items: [shareText])
             }
@@ -555,6 +562,66 @@ struct ProfileView: View {
         }
         .padding(10)
         .background(RoundedRectangle(cornerRadius: 12).fill(Theme.Color.surface))
+    }
+
+    // MARK: - Activity card (entry to full workout history + publish flow)
+    //
+    // Tappable summary that takes the user to the multi-select sheet
+    // showing every Apple Health workout we've loaded, which ones are
+    // already published with a verified Sui receipt, and a publish
+    // path for the rest. Sits below the activity chart so the visual
+    // (last 4 weeks) and the actionable (full history) flow naturally.
+
+    private var activityCard: some View {
+        let total = app.workouts.count
+        let published = app.workouts.filter { $0.suiTxDigest?.isEmpty == false }.count
+        let unpublished = total - published
+        return Button {
+            Haptics.tap()
+            showActivity = true
+        } label: {
+            HStack(spacing: 14) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .fill(Theme.Color.accent.opacity(0.18))
+                        .frame(width: 52, height: 52)
+                    Image(systemName: "list.bullet.clipboard.fill")
+                        .font(.system(size: 22, weight: .semibold))
+                        .foregroundStyle(Theme.Color.accentDeep)
+                }
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Activity")
+                        .font(.titleM).foregroundStyle(Theme.Color.ink)
+                    if total == 0 {
+                        Text("Apple Health workouts will appear here.")
+                            .font(.bodyS).foregroundStyle(Theme.Color.inkSoft)
+                            .lineLimit(1)
+                    } else if unpublished == 0 {
+                        Text("\(total) workouts · all verified ✨")
+                            .font(.bodyS).foregroundStyle(Theme.Color.inkSoft)
+                            .lineLimit(1)
+                    } else {
+                        Text("\(total) workouts · \(published) verified · \(unpublished) ready to publish")
+                            .font(.bodyS).foregroundStyle(Theme.Color.inkSoft)
+                            .lineLimit(1)
+                    }
+                }
+                Spacer()
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Theme.Color.inkFaint)
+            }
+            .padding(14)
+            .background(
+                RoundedRectangle(cornerRadius: Theme.Radius.lg, style: .continuous)
+                    .fill(Theme.Color.bgElevated)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: Theme.Radius.lg, style: .continuous)
+                            .strokeBorder(Theme.Color.stroke, lineWidth: 1)
+                    )
+            )
+        }
+        .buttonStyle(.plain)
     }
 
     // MARK: - Activity chart (last 4 weeks by workout count)

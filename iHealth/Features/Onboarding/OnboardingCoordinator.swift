@@ -7,7 +7,6 @@ struct OnboardingCoordinator: View {
         ZStack {
             switch app.onboardingStep {
             case .hero:             HeroScreen().transition(.opacity)
-            case .ageGate:          AgeGateScreen().transition(.opacity)
             case .auth:             AuthScreen().transition(.opacity)
             case .nameGoal:         NameGoalScreen().transition(.opacity)
             case .healthPermission: HealthPermissionScreen().transition(.opacity)

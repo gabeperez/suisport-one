@@ -140,6 +140,18 @@ final class WalletConnectBridge {
         }
     }
 
+    /// Caller-side cancel: when the user navigates away from the
+    /// auth flow before Slush returns, resume the pending continuation
+    /// with `Cancelled` so the awaiting Task in AppState completes
+    /// and `isAuthInFlight` flips back to false. Without this, backing
+    /// out of Slush leaves AuthScreen showing a stuck spinner forever.
+    func cancelPending() {
+        guard let p = pending else { return }
+        p.fallbackTimer?.cancel()
+        pending = nil
+        p.continuation.resume(throwing: Cancelled())
+    }
+
     private func timeout(challengeId: String) {
         resolve(challengeId: challengeId, result: .failure(Timeout()))
     }

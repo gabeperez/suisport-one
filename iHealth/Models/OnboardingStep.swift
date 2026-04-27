@@ -1,16 +1,16 @@
 import Foundation
 
 enum OnboardingStep: Int, CaseIterable, Comparable {
-    // Order: hero → ageGate (before anything that creates an account or reads
-    // Health data — legal requirement) → auth → nameGoal → healthPermission
-    // → backfill → notifications.
+    // Order: hero → auth → nameGoal → healthPermission → backfill →
+    // notifications. Age confirmation (HealthKit 13+ legal requirement)
+    // is folded into AuthScreen as a "By continuing…" disclosure under
+    // the sign-in buttons — no dedicated screen for it.
     case hero = 0
-    case ageGate = 1
-    case auth = 2
-    case nameGoal = 3
-    case healthPermission = 4
-    case backfill = 5
-    case notifications = 6
+    case auth = 1
+    case nameGoal = 2
+    case healthPermission = 3
+    case backfill = 4
+    case notifications = 5
 
     static func < (lhs: OnboardingStep, rhs: OnboardingStep) -> Bool {
         lhs.rawValue < rhs.rawValue
@@ -24,6 +24,6 @@ enum OnboardingStep: Int, CaseIterable, Comparable {
     var showsProgress: Bool { self != .hero }
 
     /// Number of dots to show in the step indicator.
-    static let progressStepCount = 6
+    static let progressStepCount = 5
     var progressIndex: Int { max(0, rawValue - 1) }
 }

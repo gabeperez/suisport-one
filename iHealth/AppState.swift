@@ -154,6 +154,16 @@ final class AppState {
         }
     }
 
+    /// Called when the user navigates away from AuthScreen mid-flow
+    /// (e.g. back-button after tapping Connect Sui Wallet but before
+    /// Slush returns). Cancels any pending wallet continuation and
+    /// resets the in-flight flag so the spinner doesn't get stuck.
+    func cancelPendingAuth() {
+        WalletConnectBridge.shared.cancelPending()
+        isAuthInFlight = false
+        lastAuthError = nil
+    }
+
     private func describeAuthError(_ error: Error) -> String {
         if case AuthService.AuthError.failed(let msg) = error {
             return "Sign-in failed: \(msg)"

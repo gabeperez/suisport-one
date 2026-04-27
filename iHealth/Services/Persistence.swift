@@ -23,6 +23,12 @@ import Security
 ///   - onboardingStep (intentionally NOT persisted — caused regressions
 ///     in the closed polish PR; signed-in users never see onboarding
 ///     anyway because hasCompletedOnboarding short-circuits the router)
+/// All methods are `nonisolated` so they can be called from any
+/// actor context — including APIClient's property initializer, which
+/// runs in a nonisolated context. Without the explicit annotation,
+/// Swift 6 strict concurrency infers `@MainActor` from the project's
+/// default actor and APIClient's call site warns about cross-actor
+/// access.
 enum AppPersistence {
     private enum Key {
         static let currentUser = "SuiSportONE.currentUser.v1"
@@ -32,12 +38,12 @@ enum AppPersistence {
     private static let keychainService = "gimme.coffee.iHealth.session"
     private static let keychainAccount = "session-jwt"
 
-    private static let encoder: JSONEncoder = {
+    nonisolated(unsafe) private static let encoder: JSONEncoder = {
         let e = JSONEncoder()
         e.dateEncodingStrategy = .secondsSince1970
         return e
     }()
-    private static let decoder: JSONDecoder = {
+    nonisolated(unsafe) private static let decoder: JSONDecoder = {
         let d = JSONDecoder()
         d.dateDecodingStrategy = .secondsSince1970
         return d
@@ -45,7 +51,7 @@ enum AppPersistence {
 
     // MARK: - currentUser
 
-    static func saveUser(_ user: User?) {
+    nonisolated static func saveUser(_ user: User?) {
         let d = UserDefaults.standard
         if let user, let data = try? encoder.encode(user) {
             d.set(data, forKey: Key.currentUser)
@@ -54,7 +60,7 @@ enum AppPersistence {
         }
     }
 
-    static func loadUser() -> User? {
+    nonisolated static func loadUser() -> User? {
         guard let data = UserDefaults.standard.data(forKey: Key.currentUser) else {
             return nil
         }
@@ -63,27 +69,27 @@ enum AppPersistence {
 
     // MARK: - onboarding completion
 
-    static func saveHasCompletedOnboarding(_ value: Bool) {
+    nonisolated static func saveHasCompletedOnboarding(_ value: Bool) {
         UserDefaults.standard.set(value, forKey: Key.hasCompletedOnboarding)
     }
 
-    static func loadHasCompletedOnboarding() -> Bool {
+    nonisolated static func loadHasCompletedOnboarding() -> Bool {
         UserDefaults.standard.bool(forKey: Key.hasCompletedOnboarding)
     }
 
     // MARK: - showDemoData
 
-    static func saveShowDemoData(_ value: Bool) {
+    nonisolated static func saveShowDemoData(_ value: Bool) {
         UserDefaults.standard.set(value, forKey: Key.showDemoData)
     }
 
-    static func loadShowDemoData() -> Bool {
+    nonisolated static func loadShowDemoData() -> Bool {
         UserDefaults.standard.bool(forKey: Key.showDemoData)
     }
 
     // MARK: - sessionToken (Keychain)
 
-    static func saveSessionToken(_ token: String?) {
+    nonisolated static func saveSessionToken(_ token: String?) {
         // Always delete first so we can replace cleanly without an
         // errSecDuplicateItem ping-pong.
         let baseQuery: [String: Any] = [
@@ -102,7 +108,7 @@ enum AppPersistence {
         SecItemAdd(add as CFDictionary, nil)
     }
 
-    static func loadSessionToken() -> String? {
+    nonisolated static func loadSessionToken() -> String? {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: keychainService,

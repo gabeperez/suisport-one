@@ -70,7 +70,9 @@ final class WalletConnectBridge {
             // forever if they never return from the wallet.
             let timer = Task { [weak self] in
                 try? await Task.sleep(nanoseconds: 120_000_000_000)
-                await self?.timeout(challengeId: challenge.challengeId)
+                // Task inherits @MainActor from the enclosing
+                // @MainActor class — same-actor call, no await needed.
+                self?.timeout(challengeId: challenge.challengeId)
             }
             pending = PendingAuth(
                 challengeId: challenge.challengeId,

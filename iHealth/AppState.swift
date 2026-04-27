@@ -158,6 +158,51 @@ final class AppState {
     /// (e.g. back-button after tapping Connect Sui Wallet but before
     /// Slush returns). Cancels any pending wallet continuation and
     /// resets the in-flight flag so the spinner doesn't get stuck.
+    /// Submit a workout from local history (HealthKit backfill) to the
+    /// chain. Builds the SubmitWorkoutRequest from the Workout, posts
+    /// to /v1/workouts, and updates the matching entry in `workouts`
+    /// with the returned tx digest + walrus blob id so the row can
+    /// flip from "mintable" → "on chain ↗" without a refresh.
+    @MainActor
+    func mintWorkout(_ workout: Workout) async throws -> SubmitWorkoutResponse {
+        let req = SubmitWorkoutRequest(
+            type: workout.type.rawValue,
+            startDate: workout.startDate.timeIntervalSince1970,
+            durationSeconds: workout.duration,
+            distanceMeters: workout.distanceMeters,
+            energyKcal: workout.energyKcal,
+            avgHeartRate: workout.avgHeartRate,
+            paceSecondsPerKm: workout.paceSecondsPerKm,
+            points: workout.points,
+            title: defaultTitle(for: workout),
+            caption: nil
+        )
+        let resp = try await APIClient.shared.submitWorkout(req)
+        // Only treat as on-chain if the worker actually ran the chain
+        // step (digest doesn't start with `pending_`). Stub mode still
+        // returns a placeholder we don't want to deep-link to.
+        if !resp.txDigest.hasPrefix("pending_"),
+           let idx = workouts.firstIndex(where: { $0.id == workout.id }) {
+            workouts[idx].suiTxDigest = resp.txDigest
+            workouts[idx].walrusBlobId = resp.walrusBlobId
+            workouts[idx].verified = true
+        }
+        return resp
+    }
+
+    private func defaultTitle(for w: Workout) -> String {
+        let hour = Calendar.current.component(.hour, from: w.startDate)
+        let when: String
+        switch hour {
+        case 5..<10: when = "Morning"
+        case 10..<14: when = "Midday"
+        case 14..<18: when = "Afternoon"
+        case 18..<22: when = "Evening"
+        default: when = "Late-night"
+        }
+        return "\(when) \(w.type.title.lowercased())"
+    }
+
     func cancelPendingAuth() {
         WalletConnectBridge.shared.cancelPending()
         isAuthInFlight = false

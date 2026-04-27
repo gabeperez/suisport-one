@@ -22,7 +22,13 @@ struct FeedView: View {
             ScrollView {
                 VStack(spacing: Theme.Space.md) {
                     headerBar
-                    if social.lastRefreshError {
+                    // Show the offline banner ONLY when there's no
+                    // content to read — empty feed + refresh error.
+                    // Simulator QUIC failures and transient network
+                    // blips would otherwise stack a scary banner on
+                    // top of the seeded fixture feed; users can
+                    // pull-to-refresh to retry from the feed itself.
+                    if social.lastRefreshError && social.feed.isEmpty {
                         offlineBanner
                     }
                     samuraiCard

@@ -28,9 +28,15 @@ nonisolated final class APIClient: @unchecked Sendable {
 
     private let session: URLSession = {
         let cfg = URLSessionConfiguration.default
-        cfg.timeoutIntervalForRequest = 15
-        cfg.timeoutIntervalForResource = 30
+        // Tight timeout so a stuck QUIC handshake (seen on iOS sim
+        // cellular paths with no UDP) gives up fast and the retry
+        // path in send() can take over with a fresh connection.
+        cfg.timeoutIntervalForRequest = 8
+        cfg.timeoutIntervalForResource = 20
         cfg.waitsForConnectivity = true
+        // HTTP/3 pipelining is what hangs on simulator. Default
+        // multipath service forces a more conservative path.
+        cfg.multipathServiceType = .none
         return URLSession(configuration: cfg)
     }()
 

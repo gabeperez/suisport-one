@@ -206,29 +206,44 @@ struct WorkoutDetailView: View {
 
     // MARK: - Verified strip
 
+    /// Suiscan link to the SuiSport ONE Move package. Tapping the
+    /// verified strip opens it so users (and judges) can see the
+    /// contract + recent on-chain mints flowing through it.
+    private static let packageExplorerURL = URL(
+        string: "https://suiscan.xyz/testnet/object/0x15c33f76fba3bc10a327d9792c7948e1eefd0162a13e7a0ac4774d7b8fec2b2c"
+    )!
+
     private var verifiedStrip: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "checkmark.seal.fill")
-                .font(.system(size: 16, weight: .bold))
-                .foregroundStyle(Theme.Color.accentDeep)
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Verified workout")
-                    .font(.system(size: 14, weight: .semibold, design: .rounded))
-                    .foregroundStyle(Theme.Color.ink)
-                Text("Attested via Apple Health + device signature")
-                    .font(.system(size: 12))
-                    .foregroundStyle(Theme.Color.inkSoft)
-            }
-            Spacer()
-            Text("on Sui")
-                .font(.labelMono)
+        Link(destination: Self.packageExplorerURL) {
+            HStack(spacing: 10) {
+                Image(systemName: "checkmark.seal.fill")
+                    .font(.system(size: 16, weight: .bold))
+                    .foregroundStyle(Theme.Color.accentDeep)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Verified workout")
+                        .font(.system(size: 14, weight: .semibold, design: .rounded))
+                        .foregroundStyle(Theme.Color.ink)
+                    Text("Attested via Apple Health + device signature")
+                        .font(.system(size: 12))
+                        .foregroundStyle(Theme.Color.inkSoft)
+                }
+                Spacer()
+                HStack(spacing: 4) {
+                    Text("on Sui")
+                        .font(.labelMono)
+                    Image(systemName: "arrow.up.right.square")
+                        .font(.system(size: 11, weight: .semibold))
+                }
                 .foregroundStyle(Theme.Color.inkFaint)
+            }
+            .padding(12)
+            .background(
+                RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous)
+                    .fill(Theme.Color.accent.opacity(0.12))
+            )
         }
-        .padding(12)
-        .background(
-            RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous)
-                .fill(Theme.Color.accent.opacity(0.12))
-        )
+        .buttonStyle(.plain)
+        .accessibilityHint("Opens the SuiSport ONE Move package on Suiscan")
     }
 
     // MARK: - Caption
@@ -294,6 +309,12 @@ struct WorkoutDetailView: View {
                     SocialDataService.shared.sendTip(on: item.id, amount: 5)
                 }
             }
+            // Honest disclosure for the demo: tipping today is a local
+            // ledger only. On-chain transfers between users land
+            // post-mainnet alongside the sponsored zkLogin txn path.
+            Text("Tips are local for this demo. On-chain transfers land on mainnet.")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(Theme.Color.inkFaint)
         }
         .padding(Theme.Space.md)
         .background(RoundedRectangle(cornerRadius: Theme.Radius.lg, style: .continuous)

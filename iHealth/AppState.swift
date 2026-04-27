@@ -7,16 +7,64 @@ import Observation
 @MainActor
 final class AppState {
     // MARK: - Auth / session
-    var currentUser: User?
+    /// Signed-in user. Hydrated from disk at init; setter writes
+    /// through so a relaunch picks up the latest profile snapshot.
+    var currentUser: User? {
+        didSet { AppPersistence.saveUser(currentUser) }
+    }
     var isAuthenticated: Bool { currentUser != nil }
 
     // MARK: - Onboarding
     var onboardingStep: OnboardingStep = .hero
-    var hasCompletedOnboarding: Bool = false
+    /// Set once the user finishes onboarding. Drives RootView's
+    /// router so a signed-in returning user lands in the main app
+    /// directly. Persisted to UserDefaults.
+    var hasCompletedOnboarding: Bool = false {
+        didSet { AppPersistence.saveHasCompletedOnboarding(hasCompletedOnboarding) }
+    }
     var isAuthInFlight: Bool = false
     /// Last sign-in error message — drives the AuthScreen banner so we
     /// stop hiding real failures behind a silent mock fallback.
     var lastAuthError: String?
+
+    init() {
+        // Rehydrate from disk. We do this in the property initializer's
+        // body via a 1:1 mirror — the didSets above also write back to
+        // disk, but they're benign overwrites of the same value.
+        let savedUser = AppPersistence.loadUser()
+        let savedDone = AppPersistence.loadHasCompletedOnboarding()
+        self.currentUser = savedUser
+        self.hasCompletedOnboarding = savedDone
+        // If we have a session, verify it's still valid against the
+        // server and clear if expired. Fire-and-forget; the UI can
+        // render immediately from the cached snapshot.
+        if APIClient.shared.sessionToken != nil, savedUser != nil {
+            Task { [weak self] in
+                await self?.verifySessionOnLaunch()
+            }
+        }
+    }
+
+    /// Hits /v1/auth/whoami once at launch. If the server says the
+    /// session is dead (401 or `authenticated: false`), tear down the
+    /// cached state so the user sees onboarding instead of a stale
+    /// "Hey, Athlete" header pointing at an expired account.
+    private func verifySessionOnLaunch() async {
+        do {
+            let resp = try await APIClient.shared.fetchWhoami()
+            if resp.authenticated == false {
+                signOut()
+            }
+        } catch let api as APIError {
+            if case .server(let code, _) = api, code == 401 {
+                signOut()
+            }
+            // Other errors (transport, 5xx) are transient — keep the
+            // cached session and let the next API call decide.
+        } catch {
+            // Network blip — leave the cached session alone.
+        }
+    }
 
     /// DOB captured before auth (AgeGate is now the first gated step). We can't
     /// PATCH the athlete row until we have a session token, so we stash it and

@@ -17,6 +17,8 @@ struct RewardsView: View {
     @State private var errorMsg: String?
     @State private var redeemingItem: RewardCatalogItemDTO?
     @State private var revealedCode: RevealedCode?
+    @State private var sampleRedemption: SampleRedemptionResponse?
+    @State private var isRedeemingSample = false
 
     struct RevealedCode: Identifiable {
         let id = UUID()
@@ -29,6 +31,8 @@ struct RewardsView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: Theme.Space.lg) {
                     balanceHeader
+                    sampleHeader
+                    onChainSampleCard
 
                     if isLoading && items.isEmpty {
                         ProgressView().frame(maxWidth: .infinity)
@@ -63,6 +67,11 @@ struct RewardsView: View {
             .sheet(item: $revealedCode) { reveal in
                 CodeRevealSheet(title: reveal.title, code: reveal.code)
             }
+            .sheet(item: $sampleRedemption) { resp in
+                SampleRedemptionSheet(response: resp) {
+                    sampleRedemption = nil
+                }
+            }
             .task { await refresh() }
             .refreshable { await refresh() }
         }
@@ -91,6 +100,113 @@ struct RewardsView: View {
             RoundedRectangle(cornerRadius: Theme.Radius.xl, style: .continuous)
                 .fill(Theme.Color.accent.opacity(0.15))
         )
+    }
+
+    /// Header label for the in-app catalog. Honest about scope: real
+    /// burns are mainnet roadmap; today is sample-only.
+    private var sampleHeader: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "info.circle.fill")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(Theme.Color.accentDeep)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("In-app rewards (sample)")
+                    .font(.system(size: 13, weight: .bold, design: .rounded))
+                    .foregroundStyle(Theme.Color.ink)
+                Text("Codes are local for this hackathon. Tap the on-chain item below to land a real Sui transaction in your wallet.")
+                    .font(.system(size: 12))
+                    .foregroundStyle(Theme.Color.inkSoft)
+            }
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous)
+                .fill(Theme.Color.accent.opacity(0.10))
+        )
+    }
+
+    /// Hardcoded "spend 1 Sweat for a tiny on-chain transfer" card.
+    /// Drives /v1/rewards/redeem-sample which has the operator
+    /// sponsor a real SUI transfer to the user's address.
+    private var onChainSampleCard: some View {
+        let canAfford = app.sweatPoints.total >= 1
+        return Button {
+            guard canAfford, !isRedeemingSample else { return }
+            Haptics.pop()
+            Task { await redeemSample() }
+        } label: {
+            HStack(spacing: 14) {
+                ZStack {
+                    Capsule()
+                        .fill(LinearGradient(
+                            colors: [
+                                Color(red: 0.30, green: 0.65, blue: 0.95),
+                                Color(red: 0.15, green: 0.45, blue: 0.80),
+                            ],
+                            startPoint: .topLeading, endPoint: .bottomTrailing
+                        ))
+                        .frame(width: 56, height: 56)
+                        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    Image(systemName: "bolt.fill")
+                        .font(.system(size: 22, weight: .bold))
+                        .foregroundStyle(.white)
+                }
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack(spacing: 6) {
+                        Text("On-chain Sample Redemption")
+                            .font(.titleM)
+                            .foregroundStyle(Theme.Color.ink)
+                        Text("LIVE")
+                            .font(.system(size: 9, weight: .heavy, design: .rounded))
+                            .tracking(0.6)
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 5).padding(.vertical, 2)
+                            .background(Capsule().fill(Theme.Color.hot))
+                    }
+                    Text("1 Sweat → 0.001 SUI lands in your wallet on Sui testnet")
+                        .font(.bodyS)
+                        .foregroundStyle(Theme.Color.inkSoft)
+                        .lineLimit(2)
+                }
+                Spacer()
+                if isRedeemingSample {
+                    ProgressView()
+                } else {
+                    Image(systemName: "arrow.right.circle.fill")
+                        .font(.system(size: 22, weight: .semibold))
+                        .foregroundStyle(canAfford ? Theme.Color.ink : Theme.Color.inkFaint)
+                }
+            }
+            .padding(14)
+            .background(
+                RoundedRectangle(cornerRadius: Theme.Radius.lg, style: .continuous)
+                    .fill(Theme.Color.bgElevated)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: Theme.Radius.lg, style: .continuous)
+                            .strokeBorder(Theme.Color.accentDeep.opacity(0.4), lineWidth: 1)
+                    )
+            )
+            .opacity(canAfford ? 1.0 : 0.6)
+        }
+        .buttonStyle(.plain)
+        .disabled(!canAfford || isRedeemingSample)
+    }
+
+    private func redeemSample() async {
+        isRedeemingSample = true
+        defer { isRedeemingSample = false }
+        do {
+            let resp = try await APIClient.shared.redeemSample()
+            // Mirror server-side debit on the local Sweat counter so
+            // the balance ticks down without a refresh round-trip.
+            app.sweatPoints.total = max(0, app.sweatPoints.total - resp.costPoints)
+            sampleRedemption = resp
+            Haptics.success()
+        } catch {
+            errorMsg = "Sample redemption failed. Try again in a moment."
+            Haptics.warn()
+        }
     }
 
     private var catalogSection: some View {
@@ -391,6 +507,139 @@ private struct CodeRevealSheet: View {
         .presentationDetents([.medium])
         .presentationDragIndicator(.hidden)
         .presentationCornerRadius(Theme.Radius.xl)
+    }
+}
+
+/// Success sheet shown after the operator sponsors the SUI transfer
+/// for a sample redemption. Surfaces the real tx digest with deep
+/// links to Suiscan + the user's wallet so the on-chain receipt is
+/// auditable from inside the app.
+private struct SampleRedemptionSheet: View {
+    let response: SampleRedemptionResponse
+    let onDone: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Theme.Space.lg) {
+            Capsule().fill(Theme.Color.stroke).frame(width: 40, height: 4)
+                .frame(maxWidth: .infinity)
+                .padding(.top, Theme.Space.sm)
+
+            ZStack {
+                Circle()
+                    .fill(Theme.Color.accent.opacity(0.18))
+                    .frame(width: 96, height: 96)
+                Image(systemName: "bolt.fill")
+                    .font(.system(size: 44, weight: .semibold))
+                    .foregroundStyle(Theme.Color.accentDeep)
+            }
+            .frame(maxWidth: .infinity)
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Sample redemption complete")
+                    .font(.displayS)
+                    .foregroundStyle(Theme.Color.ink)
+                Text("\(response.suiAmountDisplay) SUI just landed in your wallet from the operator.")
+                    .font(.bodyM)
+                    .foregroundStyle(Theme.Color.inkSoft)
+            }
+
+            Text(response.message)
+                .font(.system(size: 12))
+                .foregroundStyle(Theme.Color.inkFaint)
+                .padding(12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(
+                    RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous)
+                        .fill(Theme.Color.bgElevated)
+                )
+
+            VStack(spacing: 10) {
+                explorerRow(
+                    title: "View tx on Suiscan",
+                    subtitle: shortDigest(response.txDigest),
+                    icon: "link",
+                    url: response.txExplorerUrl
+                )
+                explorerRow(
+                    title: "View your wallet",
+                    subtitle: "operator → your address",
+                    icon: "wallet.pass.fill",
+                    url: response.walletExplorerUrl
+                )
+            }
+
+            Spacer(minLength: 0)
+
+            PrimaryButton(
+                title: "Done",
+                tint: Theme.Color.ink,
+                fg: Theme.Color.inkInverse
+            ) {
+                Haptics.tap()
+                onDone()
+            }
+        }
+        .padding(Theme.Space.lg)
+        .background(Theme.Color.bg.ignoresSafeArea())
+        .presentationDetents([.large])
+        .presentationCornerRadius(Theme.Radius.xl)
+        .onAppear { Haptics.success() }
+    }
+
+    private func explorerRow(
+        title: String,
+        subtitle: String,
+        icon: String,
+        url: String
+    ) -> some View {
+        Group {
+            if let u = URL(string: url) {
+                Link(destination: u) {
+                    rowLabel(title: title, subtitle: subtitle, icon: icon)
+                }
+                .buttonStyle(.plain)
+            } else {
+                rowLabel(title: title, subtitle: subtitle, icon: icon)
+                    .opacity(0.6)
+            }
+        }
+    }
+
+    private func rowLabel(title: String, subtitle: String, icon: String) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: icon)
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundStyle(Theme.Color.accentDeep)
+                .frame(width: 32, height: 32)
+                .background(Circle().fill(Theme.Color.accent.opacity(0.18)))
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.system(size: 14, weight: .semibold, design: .rounded))
+                    .foregroundStyle(Theme.Color.ink)
+                Text(subtitle)
+                    .font(.system(size: 12, weight: .medium, design: .monospaced))
+                    .foregroundStyle(Theme.Color.inkSoft)
+                    .lineLimit(1)
+            }
+            Spacer()
+            Image(systemName: "arrow.up.right.square")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(Theme.Color.inkFaint)
+        }
+        .padding(14)
+        .background(
+            RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous)
+                .fill(Theme.Color.bgElevated)
+                .overlay(
+                    RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous)
+                        .strokeBorder(Theme.Color.stroke, lineWidth: 1)
+                )
+        )
+    }
+
+    private func shortDigest(_ d: String) -> String {
+        guard d.count > 16 else { return d }
+        return "\(d.prefix(8))…\(d.suffix(6))"
     }
 }
 

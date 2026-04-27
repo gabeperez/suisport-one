@@ -18,7 +18,12 @@ nonisolated final class APIClient: @unchecked Sendable {
     /// Session token returned by `/auth/session`. While we mock the auth
     /// flow, we fall back to a `demoAthleteId` query param so the API
     /// accepts mutating calls without a real session.
-    var sessionToken: String?
+    /// Bearer JWT issued by /v1/auth/session. Hydrated from Keychain
+    /// at construction; assigning a new value (or nil) writes through
+    /// so the next launch picks up the change.
+    var sessionToken: String? = AppPersistence.loadSessionToken() {
+        didSet { AppPersistence.saveSessionToken(sessionToken) }
+    }
     var demoAthleteId: String? = "0xdemo_me"
 
     private let session: URLSession = {
@@ -237,6 +242,13 @@ nonisolated final class APIClient: @unchecked Sendable {
 
     func redeemReward(catalogId: String) async throws -> RedemptionResponse {
         try await post("/rewards/redeem", body: ["catalogId": catalogId])
+    }
+
+    /// Sample on-chain redemption: spends 1 Sweat off-chain, sponsors a
+    /// 0.001 SUI transfer from operator → user as the on-chain receipt.
+    /// Drives the demo's "redemption is wired into Sui" moment.
+    func redeemSample() async throws -> SampleRedemptionResponse {
+        try await post("/rewards/redeem-sample", body: EmptyBody())
     }
 
     func fetchRewardsHistory() async throws -> [RedemptionHistoryItemDTO] {
@@ -759,6 +771,18 @@ nonisolated struct RedemptionResponse: Decodable {
     let redemptionId: String
     let code: String
     let costPoints: Int
+}
+
+nonisolated struct SampleRedemptionResponse: Decodable, Identifiable {
+    let redemptionId: String
+    let costPoints: Int
+    let suiAmountMist: String
+    let suiAmountDisplay: String
+    let txDigest: String
+    let txExplorerUrl: String
+    let walletExplorerUrl: String
+    let message: String
+    var id: String { redemptionId }
 }
 
 nonisolated struct RedemptionHistoryItemDTO: Decodable, Hashable, Identifiable {

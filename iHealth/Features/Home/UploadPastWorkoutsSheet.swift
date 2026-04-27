@@ -72,7 +72,13 @@ struct UploadPastWorkoutsSheet: View {
     // MARK: - Header
 
     private var summaryHeader: some View {
-        let uploadedCount = app.workouts.filter { $0.suiTxDigest?.isEmpty == false }.count
+        // "Saved" includes both verified-on-chain workouts and ones
+        // the server told us were duplicates (we don't have the tx
+        // digest but we know they're logged).
+        let uploadedCount = app.workouts.filter {
+            $0.suiTxDigest?.isEmpty == false
+                || app.alreadyLoggedWorkoutIDs.contains($0.id)
+        }.count
         return HStack(alignment: .top, spacing: 10) {
             Image(systemName: "bolt.heart.fill")
                 .font(.system(size: 16, weight: .semibold))
@@ -97,11 +103,14 @@ struct UploadPastWorkoutsSheet: View {
     // MARK: - List
 
     private var workoutsList: some View {
-        // Sort: not-yet-uploaded first, then most recent
+        // Sort: not-yet-locked first (selectable rows surface to top),
+        // then most recent.
         let sorted = app.workouts.sorted { a, b in
-            let aUploaded = a.suiTxDigest?.isEmpty == false
-            let bUploaded = b.suiTxDigest?.isEmpty == false
-            if aUploaded != bUploaded { return !aUploaded }
+            let aLocked = (a.suiTxDigest?.isEmpty == false)
+                || app.alreadyLoggedWorkoutIDs.contains(a.id)
+            let bLocked = (b.suiTxDigest?.isEmpty == false)
+                || app.alreadyLoggedWorkoutIDs.contains(b.id)
+            if aLocked != bLocked { return !aLocked }
             return a.startDate > b.startDate
         }
         return ScrollView {
@@ -117,17 +126,22 @@ struct UploadPastWorkoutsSheet: View {
 
     private func row(_ w: Workout, index: Int) -> some View {
         let isUploaded = w.suiTxDigest?.isEmpty == false
+        // Server-side duplicate hits don't return a tx digest, but
+        // we still know the workout is logged. Treat as locked so
+        // the user can't keep retrying it.
+        let isAlreadyLogged = app.alreadyLoggedWorkoutIDs.contains(w.id)
+        let isLocked = isUploaded || isAlreadyLogged
         let isSelected = selected.contains(w.id)
-        let canSelect = !isUploaded && (isSelected || selected.count < maxSelection)
+        let canSelect = !isLocked && (isSelected || selected.count < maxSelection)
         let isCurrentlyUploading = mintingIndex.map { selectedOrdered()[$0].id == w.id } ?? false
 
         return Button {
-            guard !isUploaded, mintingIndex == nil else {
+            guard !isLocked, mintingIndex == nil else {
                 if isUploaded, let url = txURL(for: w) {
                     UIApplication.shared.open(url)
                 }
                 return
-            }   
+            }
             Haptics.tap()
             if isSelected { selected.remove(w.id) }
             else if canSelect { selected.insert(w.id) }
@@ -148,8 +162,12 @@ struct UploadPastWorkoutsSheet: View {
                         .lineLimit(1)
                 }
                 Spacer()
-                trailing(for: w, isUploaded: isUploaded, isSelected: isSelected,
-                         canSelect: canSelect, isUploading: isCurrentlyUploading)
+                trailing(for: w,
+                         isUploaded: isUploaded,
+                         isAlreadyLogged: isAlreadyLogged,
+                         isSelected: isSelected,
+                         canSelect: canSelect,
+                         isUploading: isCurrentlyUploading)
             }
             .padding(12)
             .background(
@@ -163,7 +181,7 @@ struct UploadPastWorkoutsSheet: View {
                             )
                     )
             )
-            .opacity(canSelect || isUploaded || isSelected ? 1.0 : 0.45)
+            .opacity(canSelect || isLocked || isSelected ? 1.0 : 0.45)
         }
         .buttonStyle(.plain)
         .disabled(mintingIndex != nil)
@@ -171,8 +189,12 @@ struct UploadPastWorkoutsSheet: View {
 
     @ViewBuilder
     private func trailing(
-        for w: Workout, isUploaded: Bool, isSelected: Bool,
-        canSelect: Bool, isUploading: Bool
+        for w: Workout,
+        isUploaded: Bool,
+        isAlreadyLogged: Bool,
+        isSelected: Bool,
+        canSelect: Bool,
+        isUploading: Bool
     ) -> some View {
         if isUploading {
             ProgressView()
@@ -188,6 +210,17 @@ struct UploadPastWorkoutsSheet: View {
             .foregroundStyle(Theme.Color.accentDeep)
             .padding(.horizontal, 8).padding(.vertical, 4)
             .background(Capsule().fill(Theme.Color.accent.opacity(0.18)))
+        } else if isAlreadyLogged {
+            HStack(spacing: 4) {
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.system(size: 11, weight: .bold))
+                Text("Already logged")
+                    .font(.system(size: 11, weight: .bold, design: .rounded))
+            }
+            .foregroundStyle(Theme.Color.inkSoft)
+            .padding(.horizontal, 8).padding(.vertical, 4)
+            .background(Capsule().fill(Theme.Color.bgElevated))
+            .overlay(Capsule().strokeBorder(Theme.Color.stroke, lineWidth: 1))
         } else {
             Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
                 .font(.system(size: 22))
@@ -288,11 +321,30 @@ struct UploadPastWorkoutsSheet: View {
                     txDigest: digest,
                     error: digest == nil ? pendingReason : nil
                 ))
+            } catch let api as APIError {
+                // Special-case 422 duplicate: mark workout as
+                // already-logged locally so future renders show the
+                // "Already logged" pill instead of a selectable row.
+                if case .server(422, let body) = api,
+                   parseRejectReason(body) == "duplicate_submission" {
+                    app.alreadyLoggedWorkoutIDs.insert(w.id)
+                    batchResults.append(MintBatchResult(
+                        title: "\(w.type.title) · \(w.points) Sweat",
+                        txDigest: nil,
+                        error: "Already logged!"
+                    ))
+                } else {
+                    batchResults.append(MintBatchResult(
+                        title: "\(w.type.title) · \(w.points) Sweat",
+                        txDigest: nil,
+                        error: describeAPIError(api)
+                    ))
+                }
             } catch {
                 batchResults.append(MintBatchResult(
                     title: "\(w.type.title) · \(w.points) Sweat",
                     txDigest: nil,
-                    error: (error as? APIError).map(describeAPIError) ?? error.localizedDescription
+                    error: error.localizedDescription
                 ))
             }
         }

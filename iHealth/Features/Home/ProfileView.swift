@@ -574,7 +574,12 @@ struct ProfileView: View {
 
     private var activityCard: some View {
         let total = app.workouts.count
-        let published = app.workouts.filter { $0.suiTxDigest?.isEmpty == false }.count
+        // Count both verified-on-chain workouts and ones the server
+        // told us were duplicates (logged but no local tx digest).
+        let published = app.workouts.filter {
+            $0.suiTxDigest?.isEmpty == false
+                || app.alreadyLoggedWorkoutIDs.contains($0.id)
+        }.count
         let unpublished = total - published
         return Button {
             Haptics.tap()

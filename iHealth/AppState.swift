@@ -106,6 +106,12 @@ final class AppState {
     // MARK: - Data
     var workouts: [Workout] = []
     var sweatPoints: SweatPoints = .zero
+    /// Workout IDs the server told us are already saved (HTTP 422
+    /// duplicate_submission). We don't have the real Sui tx digest
+    /// for these on iOS, but we know they exist in D1, so we mark
+    /// them locally so the upload sheet hides them from the
+    /// selectable list and shows an "Already logged" pill instead.
+    var alreadyLoggedWorkoutIDs: Set<UUID> = []
 
     /// Computed: has the user granted Health access at least to writing?
     /// For read-auth HealthKit doesn't expose status — we infer by querying.

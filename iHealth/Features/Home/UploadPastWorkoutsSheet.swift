@@ -303,9 +303,25 @@ struct UploadPastWorkoutsSheet: View {
 
     private func describeAPIError(_ e: APIError) -> String {
         switch e {
-        case .server(let code, let msg): return "HTTP \(code) · \(msg.prefix(80))"
+        case .server(422, let body):
+            // Parse the structured rejection reason out of the body
+            // so users see "Already saved" instead of raw JSON.
+            if body.contains("\"duplicate_submission\"") {
+                return "Already saved — chain verification syncing"
+            }
+            if body.contains("\"points_inflated\"") {
+                return "Points too high for the workout duration"
+            }
+            if body.contains("\"pace_impossible\"") {
+                return "Pace flagged as impossible"
+            }
+            return "Rejected by server (422)"
+        case .server(401, _):
+            return "Sign in expired"
+        case .server(let code, let msg):
+            return "Server error (\(code)): \(msg.prefix(80))"
         case .transport: return "Network error"
-        case .notImplemented: return "Endpoint missing"
+        case .notImplemented: return "Not available on this build"
         }
     }
 

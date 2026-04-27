@@ -40,6 +40,10 @@ struct AuthScreen: View {
 
                     trustRow
 
+                    if let err = app.lastAuthError {
+                        authErrorBanner(err)
+                    }
+
                     Spacer().frame(height: Theme.Space.md)
                 }
                 .padding(.horizontal, Theme.Space.lg)
@@ -195,6 +199,34 @@ struct AuthScreen: View {
             .frame(height: 54)
         }
         .buttonStyle(AppleButtonStyle(colorScheme: colorScheme))
+    }
+
+    private func authErrorBanner(_ message: String) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: 14, weight: .bold))
+                .foregroundStyle(Theme.Color.hot)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Sign-in failed")
+                    .font(.system(size: 13, weight: .bold, design: .rounded))
+                    .foregroundStyle(Theme.Color.ink)
+                Text(message)
+                    .font(.system(size: 12))
+                    .foregroundStyle(Theme.Color.inkSoft)
+                    .multilineTextAlignment(.leading)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous)
+                .fill(Theme.Color.hot.opacity(0.12))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous)
+                .strokeBorder(Theme.Color.hot.opacity(0.3), lineWidth: 1)
+        )
     }
 
     private var trustRow: some View {

@@ -94,7 +94,9 @@ struct FeedView: View {
                     Text("Hey, \(firstName)")
                         .font(.displayS)
                         .foregroundStyle(Theme.Color.ink)
-                    DemoChip()
+                    if isInDemoMode {
+                        DemoChip()
+                    }
                 }
                 Text(streakLine)
                     .font(.bodyM)
@@ -536,6 +538,14 @@ struct FeedView: View {
     }
 
     // MARK: - Derived
+
+    /// True only when we have NO real session — i.e. the user is
+    /// browsing pre-sign-in fixture data, not a real account. Once
+    /// the auth/session call lands a session token, this flips off
+    /// and the DEMO chip disappears.
+    private var isInDemoMode: Bool {
+        APIClient.shared.sessionToken == nil
+    }
 
     private var firstName: String {
         (app.currentUser?.displayName ?? "")

@@ -33,11 +33,11 @@ final class AuthService: NSObject {
         guard let tokenData = credential.identityToken,
               let idToken = String(data: tokenData, encoding: .utf8) else {
             // Rare: Apple returned a credential with no identity token.
-            // Fall back to offline mock.
-            return await mintMockSession(provider: .apple, subject: subject, name: name)
+            // This is a genuine bug — fail loudly so the user knows.
+            throw AuthError.failed("Apple sign-in returned no identity token")
         }
-        return await exchangeIdToken(provider: .apple, idToken: idToken,
-                                     displayName: name, fallbackSubject: subject)
+        return try await exchangeIdToken(provider: .apple, idToken: idToken,
+                                         displayName: name, fallbackSubject: subject)
     }
 
     /// Sign in with an existing Sui wallet (Slush etc.). Fetches a
@@ -91,7 +91,7 @@ final class AuthService: NSObject {
         }
         do {
             let idToken = try await GoogleAuth.signIn()
-            return await exchangeIdToken(
+            return try await exchangeIdToken(
                 provider: .google,
                 idToken: idToken,
                 displayName: nil,
@@ -99,45 +99,44 @@ final class AuthService: NSObject {
             )
         } catch GoogleAuthError.cancelled {
             throw AuthError.cancelled
+        } catch let auth as AuthError {
+            throw auth
         } catch {
             throw AuthError.failed(String(describing: error))
         }
     }
 
     /// POST the OAuth id_token to the Worker's /v1/auth/session. On
-    /// success stores the returned sessionJwt in the shared APIClient.
-    /// On failure falls back to a local mock so the app keeps working
-    /// even when the backend is unreachable.
+    /// success stores the returned sessionJwt in the shared APIClient
+    /// so subsequent API calls carry Authorization.
+    ///
+    /// We deliberately do NOT silently fall back to a local mock on
+    /// failure: that path was hiding real auth errors from the user
+    /// (and from us debugging). When the exchange fails — Enoki
+    /// rejection, network, anything — surface the error so the caller
+    /// can show a real message and we can fix the underlying problem
+    /// instead of presenting a "signed in" UI with no session token.
     private func exchangeIdToken(
         provider: AuthProvider,
         idToken: String,
         displayName: String?,
         fallbackSubject: String
-    ) async -> User {
-        do {
-            let resp = try await APIClient.shared.exchange(
-                provider: provider, idToken: idToken, displayName: displayName
-            )
-            // Store session so subsequent API calls carry Authorization.
-            APIClient.shared.sessionToken = resp.sessionJwt
-            APIClient.shared.demoAthleteId = nil
-            return User(
-                id: resp.userId ?? resp.suiAddress,   // prefer stable UUID
-                displayName: resp.displayName,
-                avatarURL: nil,
-                goal: nil,
-                suiAddress: resp.suiAddress,
-                suinsName: resp.suinsName,
-                suggestedHandle: resp.handle,
-                createdAt: .now
-            )
-        } catch {
-            // Network / backend unavailable — keep the user on-boarded
-            // with a stable mock address so they can still use the app.
-            return await mintMockSession(
-                provider: provider, subject: fallbackSubject, name: displayName
-            )
-        }
+    ) async throws -> User {
+        let resp = try await APIClient.shared.exchange(
+            provider: provider, idToken: idToken, displayName: displayName
+        )
+        APIClient.shared.sessionToken = resp.sessionJwt
+        APIClient.shared.demoAthleteId = nil
+        return User(
+            id: resp.userId ?? resp.suiAddress,
+            displayName: resp.displayName,
+            avatarURL: nil,
+            goal: nil,
+            suiAddress: resp.suiAddress,
+            suinsName: resp.suinsName,
+            suggestedHandle: resp.handle,
+            createdAt: .now
+        )
     }
 
     // MARK: - Private

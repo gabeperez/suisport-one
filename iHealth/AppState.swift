@@ -14,6 +14,9 @@ final class AppState {
     var onboardingStep: OnboardingStep = .hero
     var hasCompletedOnboarding: Bool = false
     var isAuthInFlight: Bool = false
+    /// Last sign-in error message — drives the AuthScreen banner so we
+    /// stop hiding real failures behind a silent mock fallback.
+    var lastAuthError: String?
 
     /// DOB captured before auth (AgeGate is now the first gated step). We can't
     /// PATCH the athlete row until we have a session token, so we stash it and
@@ -46,6 +49,7 @@ final class AppState {
 
     func signInWithApple() async {
         isAuthInFlight = true
+        lastAuthError = nil
         defer { isAuthInFlight = false }
         do {
             let user = try await AuthService.shared.signInWithApple()
@@ -54,14 +58,15 @@ final class AppState {
             applyPendingDateOfBirth()
             advanceOnboarding()
         } catch AuthService.AuthError.cancelled {
-            // silent — user tapped cancel
+            // user tapped cancel — no banner
         } catch {
-            // In production: surface a toast. For now, silently stay on auth screen.
+            lastAuthError = describeAuthError(error)
         }
     }
 
     func signInWithGoogle() async {
         isAuthInFlight = true
+        lastAuthError = nil
         defer { isAuthInFlight = false }
         do {
             let user = try await AuthService.shared.signInWithGoogle()
@@ -69,13 +74,16 @@ final class AppState {
             UserDefaults.standard.set("google", forKey: "lastAuthProvider")
             applyPendingDateOfBirth()
             advanceOnboarding()
+        } catch AuthService.AuthError.cancelled {
+            // user tapped cancel — no banner
         } catch {
-            // ignore
+            lastAuthError = describeAuthError(error)
         }
     }
 
     func signInWithWallet(useOtherWallet: Bool = false) async {
         isAuthInFlight = true
+        lastAuthError = nil
         defer { isAuthInFlight = false }
         do {
             let user = try await AuthService.shared.signInWithWallet(
@@ -86,8 +94,23 @@ final class AppState {
             applyPendingDateOfBirth()
             advanceOnboarding()
         } catch {
-            // ignore
+            lastAuthError = describeAuthError(error)
         }
+    }
+
+    private func describeAuthError(_ error: Error) -> String {
+        if case AuthService.AuthError.failed(let msg) = error {
+            return "Sign-in failed: \(msg)"
+        }
+        if let api = error as? APIError {
+            switch api {
+            case .server(let code, let body):
+                return "Sign-in failed (HTTP \(code)). \(body.prefix(120))"
+            case .transport: return "Sign-in failed: network error."
+            case .notImplemented: return "Sign-in failed: not implemented."
+            }
+        }
+        return "Sign-in failed: \(error.localizedDescription)"
     }
 
     /// Clears the session, demo id, and cached user state so ContentView

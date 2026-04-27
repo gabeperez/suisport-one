@@ -731,8 +731,14 @@ nonisolated struct SubmitWorkoutRequest: Encodable {
 nonisolated struct SubmitWorkoutResponse: Decodable {
     let workoutId: String
     let feedItemId: String
+    /// Post-formula Sweat that landed in the user's wallet on Sui. The
+    /// number to animate in the success card. Matches the on-chain
+    /// `WorkoutScored.final_reward` event in display units.
     let pointsMinted: Int
     let txDigest: String
+    /// Walrus blob id of the canonical workout JSON. Nil when the
+    /// pipeline ran in stub mode or Walrus upload failed.
+    let walrusBlobId: String?
 }
 
 // MARK: - Rewards DTOs

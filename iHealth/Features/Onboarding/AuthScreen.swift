@@ -237,7 +237,7 @@ struct AuthScreen: View {
                 "Every session is signed by App Attest, blob-stored on Walrus, minted on Sui. No ads. No surveys.",
                 icon: "checkmark.seal.fill")
             row("Earn rewards from the fighter",
-                "Soulbound trophies signed by the fighter on completion. Plus Sweat Points and sponsor drops.",
+                "Soulbound trophies signed by the fighter on completion. Plus Sweat and sponsor drops.",
                 icon: "trophy.fill")
 
             Spacer()

@@ -80,7 +80,7 @@ struct RewardsView: View {
                 Text("\(app.sweatPoints.total)")
                     .font(.system(size: 40, weight: .bold, design: .rounded))
                     .foregroundStyle(Theme.Color.ink)
-                Text("Sweat Points")
+                Text("Sweat")
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(Theme.Color.inkSoft)
             }

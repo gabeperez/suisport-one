@@ -319,7 +319,7 @@ struct FeedView: View {
             HStack(spacing: 8) {
                 Image(systemName: "bolt.heart.fill")
                     .font(.system(size: 14, weight: .semibold))
-                Text("Sweat Points")
+                Text("Sweat")
                     .font(.system(size: 13, weight: .semibold, design: .rounded))
             }
             .foregroundStyle(Theme.Color.accentInk.opacity(0.75))

@@ -175,7 +175,7 @@ struct WorkoutDetailView: View {
             }
             statBlock(label: "Points", value: "\(item.workout.points)", unit: "SP")
             if item.tippedSweat > 0 {
-                statBlock(label: "Tips", value: "\(item.tippedSweat)", unit: "SWEAT")
+                statBlock(label: "Tips", value: "\(item.tippedSweat)", unit: "Sweat")
             }
         }
     }

@@ -110,7 +110,7 @@ struct ClubsView: View {
                         .foregroundStyle(.white.opacity(0.85))
                     HStack(spacing: 16) {
                         featureStat("Members", "\(club.memberCount.formatted(.number.notation(.compactName)))")
-                        featureStat("Treasury", "\(club.sweatTreasury.formatted(.number.notation(.compactName))) SWEAT")
+                        featureStat("Treasury", "\(club.sweatTreasury.formatted(.number.notation(.compactName))) Sweat")
                         featureStat("Week", "\(Int(club.weeklyKm)) km")
                     }
                 }

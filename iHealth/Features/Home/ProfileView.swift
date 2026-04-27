@@ -79,8 +79,8 @@ struct ProfileView: View {
                 switch kind {
                 case .cashout:
                     ComingSoonSheet(icon: "arrow.up.right.square.fill",
-                                    title: "Cash out to $SWEAT",
-                                    message: "Swap your Sweat Points for on-chain $SWEAT from the companion wallet. We're polishing the last bits.")
+                                    title: "Cash out to wallet",
+                                    message: "Move your Sweat to the companion wallet for swaps and gifting. We're polishing the last bits.")
                 case .appleHealth:
                     ComingSoonSheet(icon: "heart.fill",
                                     title: "Apple Health",
@@ -112,6 +112,12 @@ struct ProfileView: View {
                 AthleteProfileView(athleteId: route.id)
             }
             .task { await loadSweatBalance() }
+            .refreshable {
+                // Pull-to-refresh the on-chain Sweat balance after
+                // submitting a workout so the pill ticks up to match
+                // what's now in the user's Sui wallet.
+                await loadSweatBalance()
+            }
         }
     }
 
@@ -172,8 +178,14 @@ struct ProfileView: View {
                                 .font(.system(size: 12, weight: .medium))
                                 .foregroundStyle(.white.opacity(0.75))
                         }
-                        if let bal = sweatBalance {
-                            SweatPill(display: bal)
+                        if let bal = sweatBalance,
+                           let addr = app.currentUser?.suiAddress,
+                           let url = URL(string: "https://suiscan.xyz/testnet/account/\(addr)") {
+                            Link(destination: url) {
+                                SweatPill(display: bal)
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityHint("Opens your wallet on Suiscan")
                         }
                         if let me = social.me {
                             Text("·").foregroundStyle(.white.opacity(0.5))
@@ -307,10 +319,10 @@ struct ProfileView: View {
                             .foregroundStyle(.white)
                     }
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("Redeem \(app.sweatPoints.total) points")
+                        Text("Redeem \(app.sweatPoints.total) Sweat")
                             .font(.system(size: 15, weight: .bold, design: .rounded))
                             .foregroundStyle(Theme.Color.ink)
-                        Text("Turn them into gear, gift cards, or on-chain $SWEAT.")
+                        Text("Turn it into gear, gift cards, or sample on-chain redemptions.")
                             .font(.system(size: 11, weight: .medium, design: .rounded))
                             .foregroundStyle(Theme.Color.inkSoft)
                             .lineLimit(1)
@@ -711,7 +723,7 @@ struct ProfileView: View {
 
     private var menu: some View {
         VStack(spacing: 0) {
-            menuRow("Cash out to $SWEAT", icon: "arrow.up.right.square.fill") {
+            menuRow("Cash out to wallet", icon: "arrow.up.right.square.fill") {
                 pendingComingSoon = .cashout
             }
             Divider().padding(.leading, 52)
@@ -898,7 +910,7 @@ struct AdvancedSheet: View {
                     }
                     if let b = balance {
                         HStack {
-                            Label("$SWEAT balance", systemImage: "bolt.heart.fill")
+                            Label("Sweat balance", systemImage: "bolt.heart.fill")
                             Spacer()
                             Text(b.display)
                                 .font(.system(.body, design: .monospaced).weight(.semibold))

@@ -211,7 +211,7 @@ struct ClubDetailView: View {
                     HStack(alignment: .firstTextBaseline, spacing: 4) {
                         Text("\(c.sweatTreasury.formatted(.number.notation(.compactName)))")
                             .font(.system(size: 38, weight: .bold, design: .rounded))
-                        Text("SWEAT")
+                        Text("Sweat")
                             .font(.system(size: 13, weight: .semibold, design: .rounded))
                             .foregroundStyle(Theme.Color.inkSoft)
                     }
@@ -223,8 +223,8 @@ struct ClubDetailView: View {
                 Text("How the treasury works")
                     .font(.system(size: 13, weight: .semibold, design: .rounded))
                     .foregroundStyle(Theme.Color.ink)
-                row("Auto-funded", "1% of every member's earned SWEAT.")
-                row("Spent by vote", "Members stake SWEAT to vote on prizes and proposals.")
+                row("Auto-funded", "1% of every member's earned Sweat.")
+                row("Spent by vote", "Members stake Sweat to vote on prizes and proposals.")
                 row("Owned on Sui", "The treasury lives in a Move contract. Nobody can drain it.")
             }
             .padding(14)

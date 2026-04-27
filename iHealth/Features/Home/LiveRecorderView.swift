@@ -20,6 +20,10 @@ struct LiveRecorderView: View {
     /// while submit fails so the user can re-attempt without losing the
     /// captured session, and cleared on success or Discard.
     @State private var pendingSubmit: PendingSubmit?
+    /// Receipt from the most recent successful submit. Drives the
+    /// success sheet that shows the on-chain mint amount, Suiscan +
+    /// Walrus links — the demo's headline moment.
+    @State private var mintReceipt: MintReceipt?
 
     private struct PendingSubmit {
         let workout: Workout
@@ -72,6 +76,13 @@ struct LiveRecorderView: View {
             }
         } message: {
             Text(submitError ?? "")
+        }
+        .sheet(item: $mintReceipt) { receipt in
+            MintSuccessSheet(receipt: receipt) {
+                mintReceipt = nil
+                dismiss()
+            }
+            .interactiveDismissDisabled(false)
         }
     }
 
@@ -344,11 +355,28 @@ struct LiveRecorderView: View {
     @MainActor
     private func submit(_ pending: PendingSubmit) async {
         do {
-            _ = try await APIClient.shared.submitWorkout(pending.request)
+            let resp = try await APIClient.shared.submitWorkout(pending.request)
             pendingSubmit = nil
+            // Capture the on-chain receipt — drives the success sheet
+            // and lets the user tap into Suiscan + Walrus from the app.
+            // We only show the sheet when the pipeline actually executed
+            // (a real txDigest, not the `pending_<id>` stub).
+            if !resp.txDigest.hasPrefix("pending_") {
+                mintReceipt = MintReceipt(
+                    pointsMinted: resp.pointsMinted,
+                    txDigest: resp.txDigest,
+                    walrusBlobId: resp.walrusBlobId,
+                    workoutTitle: pending.request.title
+                )
+            }
             // Refresh the feed so the new workout shows up immediately.
             await social.refresh()
             Haptics.success()
+            // If we didn't show the success sheet (stub mode), close
+            // the recorder ourselves so the user lands back on the feed.
+            if mintReceipt == nil {
+                dismiss()
+            }
         } catch {
             submitError = error.localizedDescription
             Haptics.warn()

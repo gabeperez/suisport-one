@@ -239,7 +239,7 @@ struct SweatPill: View {
             Text(display)
                 .font(.system(size: style == .hero ? 12 : 10,
                               weight: .bold, design: .rounded))
-            Text("SWEAT")
+            Text("Sweat")
                 .font(.system(size: style == .hero ? 9 : 8,
                               weight: .bold, design: .rounded))
                 .tracking(0.8)

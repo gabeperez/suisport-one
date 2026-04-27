@@ -81,6 +81,10 @@ final class SocialDataService {
     /// refresh (e.g. notConnectedToInternet). Used to tailor the banner
     /// copy and to know whether a retry has a chance of succeeding.
     var isOffline: Bool = false
+    /// True when the last refresh failed with 401 (no/expired session).
+    /// FeedView swaps the banner copy to "Sign in to load your feed."
+    /// instead of the misleading "check your connection" message.
+    var isUnauthorized: Bool = false
 
     /// Cursor for the next page of feed items, opaque "<key>:<id>"
     /// string from the server. `nil` = end of feed. Private to this
@@ -104,6 +108,10 @@ final class SocialDataService {
         guard !isRefreshing else { return }
         isRefreshing = true
         defer { isRefreshing = false }
+        // Clear the auth-error flag at the top so a successful refresh
+        // takes the banner away. We re-set it below if the new fetch
+        // also 401s.
+        isUnauthorized = false
 
         // Fetch the primary (feed) with an explicit do/catch so we can
         // classify offline vs server errors for the banner. Secondary
@@ -121,6 +129,13 @@ final class SocialDataService {
                 .timedOut, .cannotFindHost, .cannotConnectToHost,
                 .dataNotAllowed, .internationalRoamingOff
             ].contains(url.code)
+        } catch let api as APIError {
+            // Surface 401 distinctly so the feed banner can prompt the
+            // user to sign in instead of suggesting a network problem.
+            refreshHadError = true
+            if case .server(let code, _) = api, code == 401 {
+                isUnauthorized = true
+            }
         } catch {
             refreshHadError = true
         }
@@ -1049,7 +1064,7 @@ private extension SocialDataService {
                    rarity: .rare,
                    progress: min(1, (workouts.compactMap { $0.distanceMeters }.max() ?? 0) / 10000),
                    cat: .firsts, colors: ["#45A9FF", "#275EC7"]),
-            trophy("Half Marathon", "Run 21.1 km in one workout", icon: "figure.run.motion",
+            trophy("Half Marathon", "Run 21.1 km in one workout", icon: "figure.run",
                    rarity: .epic,
                    progress: min(1, (workouts.compactMap { $0.distanceMeters }.max() ?? 0) / 21100),
                    cat: .firsts, colors: ["#B57BFF", "#5534BF"]),

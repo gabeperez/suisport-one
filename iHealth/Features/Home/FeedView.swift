@@ -117,7 +117,9 @@ struct FeedView: View {
             Image(systemName: social.isOffline ? "wifi.slash" : "exclamationmark.triangle.fill")
                 .font(.system(size: 15, weight: .bold))
                 .foregroundStyle(Theme.Color.hot)
-            Text("Couldn't refresh feed — check your connection.")
+            Text(social.isUnauthorized
+                 ? "Sign in to load your feed."
+                 : "Couldn't refresh feed — check your connection.")
                 .font(.system(size: 13, weight: .medium, design: .rounded))
                 .foregroundStyle(Theme.Color.ink)
                 .lineLimit(2)
@@ -129,12 +131,14 @@ struct FeedView: View {
                 Text("Retry")
                     .font(.system(size: 13, weight: .bold, design: .rounded))
                     .foregroundStyle(Theme.Color.inkInverse)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 6)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
                     .background(Capsule().fill(Theme.Color.ink))
+                    .contentShape(Capsule())
             }
             .buttonStyle(.plain)
             .disabled(social.isRefreshing)
+            .zIndex(1)
         }
         .padding(12)
         .background(
@@ -145,6 +149,9 @@ struct FeedView: View {
             RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous)
                 .strokeBorder(Theme.Color.hot.opacity(0.3), lineWidth: 1)
         )
+        // Constrain hit area to the banner itself so the giant Samurai
+        // card below doesn't swallow taps that should land on Retry.
+        .contentShape(RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous))
     }
 
     // MARK: - ONE Samurai 1 hero card

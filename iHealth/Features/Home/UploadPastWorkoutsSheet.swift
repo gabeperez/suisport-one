@@ -135,7 +135,7 @@ struct UploadPastWorkoutsSheet: View {
             HStack(spacing: 12) {
                 Image(systemName: w.type.icon)
                     .font(.system(size: 17, weight: .semibold))
-                    .foregroundStyle(isMinted ? Theme.Color.accentDeep : Theme.Color.ink)
+                    .foregroundStyle(isUploaded ? Theme.Color.accentDeep : Theme.Color.ink)
                     .frame(width: 38, height: 38)
                     .background(Circle().fill(Theme.Color.bgElevated))
                 VStack(alignment: .leading, spacing: 2) {

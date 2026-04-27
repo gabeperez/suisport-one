@@ -36,27 +36,32 @@ import Security
 /// synchronous — they only happen at launch and need to return a
 /// value to the caller.
 enum AppPersistence {
+    // All key/queue/encoder constants are `nonisolated`. Without it,
+    // Swift 6 infers @MainActor from the project default and the
+    // nonisolated save/load methods can't reference them. The Sendable
+    // types (DispatchQueue, JSONEncoder, JSONDecoder) don't need
+    // `(unsafe)` — Swift can prove cross-actor access is safe.
     private enum Key {
-        static let currentUser = "SuiSportONE.currentUser.v1"
-        static let hasCompletedOnboarding = "SuiSportONE.hasCompletedOnboarding"
-        static let showDemoData = "SuiSportONE.showDemoData"
+        nonisolated static let currentUser = "SuiSportONE.currentUser.v1"
+        nonisolated static let hasCompletedOnboarding = "SuiSportONE.hasCompletedOnboarding"
+        nonisolated static let showDemoData = "SuiSportONE.showDemoData"
     }
-    private static let keychainService = "gimme.coffee.iHealth.session"
-    private static let keychainAccount = "session-jwt"
+    nonisolated private static let keychainService = "gimme.coffee.iHealth.session"
+    nonisolated private static let keychainAccount = "session-jwt"
     /// Serial background queue for writes. Keeps disk writes off the
     /// main thread while preserving order so a save followed by a
     /// load (rare) sees the latest value.
-    nonisolated(unsafe) private static let writeQueue = DispatchQueue(
+    nonisolated private static let writeQueue = DispatchQueue(
         label: "gimme.coffee.iHealth.persistence",
         qos: .utility
     )
 
-    nonisolated(unsafe) private static let encoder: JSONEncoder = {
+    nonisolated private static let encoder: JSONEncoder = {
         let e = JSONEncoder()
         e.dateEncodingStrategy = .secondsSince1970
         return e
     }()
-    nonisolated(unsafe) private static let decoder: JSONDecoder = {
+    nonisolated private static let decoder: JSONDecoder = {
         let d = JSONDecoder()
         d.dateDecodingStrategy = .secondsSince1970
         return d

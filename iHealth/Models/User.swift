@@ -1,6 +1,11 @@
 import Foundation
 
-struct User: Identifiable, Hashable, Codable {
+// Sendable lets AppPersistence encode/decode this from its
+// nonisolated background queue without Swift 6 emitting a
+// "main-actor-isolated conformance of User to Codable cannot be
+// used in nonisolated context" warning. All stored properties are
+// already Sendable (String / URL / Date / Optionals).
+struct User: Identifiable, Hashable, Codable, Sendable {
     var id: String
     var displayName: String
     var avatarURL: URL?
@@ -18,13 +23,13 @@ struct User: Identifiable, Hashable, Codable {
     var createdAt: Date
 }
 
-enum AuthProvider: String, Codable { case apple, google }
+enum AuthProvider: String, Codable, Sendable { case apple, google }
 
 /// Onboarding goals — what the user is here for. Reframed for SuiSport
 /// ONE around martial arts. Generic activity ("stay active") still
 /// reachable via the cross-training case so a runner who follows ONE
 /// for the fights isn't excluded.
-enum UserGoal: String, CaseIterable, Codable, Identifiable {
+enum UserGoal: String, CaseIterable, Codable, Identifiable, Sendable {
     case fightCamp, striking, grappling, crossTrain
 
     var id: String { rawValue }

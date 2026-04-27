@@ -104,8 +104,24 @@ final class SocialDataService {
     func apiIdForClub(_ id: UUID) -> String { clubApiIds[id] ?? "" }
     func apiIdForShoe(_ id: UUID) -> String { shoeApiIds[id] ?? "" }
 
+    /// When true, `refresh()` returns early without hitting the
+    /// server — the seeded fixture feed + clubs + athletes stay
+    /// visible. Wired to `AppState.showDemoData` from RootTabView
+    /// before each refresh.
+    var demoOverride: Bool = false
+
     func refresh() async {
         guard !isRefreshing else { return }
+        // Demo override: keep the seeded feed instead of hitting the
+        // server. Used for stage demos where rich fixture data is
+        // preferable to a freshly-signed-in empty feed.
+        if demoOverride {
+            lastRefreshError = false
+            isOffline = false
+            isUnauthorized = false
+            lastRefreshedAt = .now
+            return
+        }
         isRefreshing = true
         defer { isRefreshing = false }
         // Clear the auth-error flag at the top so a successful refresh

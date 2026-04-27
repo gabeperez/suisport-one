@@ -27,6 +27,7 @@ enum AppPersistence {
     private enum Key {
         static let currentUser = "SuiSportONE.currentUser.v1"
         static let hasCompletedOnboarding = "SuiSportONE.hasCompletedOnboarding"
+        static let showDemoData = "SuiSportONE.showDemoData"
     }
     private static let keychainService = "gimme.coffee.iHealth.session"
     private static let keychainAccount = "session-jwt"
@@ -68,6 +69,16 @@ enum AppPersistence {
 
     static func loadHasCompletedOnboarding() -> Bool {
         UserDefaults.standard.bool(forKey: Key.hasCompletedOnboarding)
+    }
+
+    // MARK: - showDemoData
+
+    static func saveShowDemoData(_ value: Bool) {
+        UserDefaults.standard.set(value, forKey: Key.showDemoData)
+    }
+
+    static func loadShowDemoData() -> Bool {
+        UserDefaults.standard.bool(forKey: Key.showDemoData)
     }
 
     // MARK: - sessionToken (Keychain)

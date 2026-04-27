@@ -21,7 +21,25 @@ struct RootTabView: View {
                 .presentationCornerRadius(Theme.Radius.xl)
         }
         .background(Theme.Color.bg.ignoresSafeArea())
-        .task { await social.refresh() }
+        .task {
+            // Mirror the AppState toggle into the data service so
+            // refresh() can short-circuit when the user wants to
+            // stage-demo with rich fixture data.
+            social.demoOverride = app.showDemoData
+            await social.refresh()
+        }
+        .onChange(of: app.showDemoData) { _, newValue in
+            social.demoOverride = newValue
+            // Re-seed the local fixtures when the user flips the
+            // toggle ON, so they get a fresh, full set even if a
+            // previous refresh had partially overwritten them.
+            if newValue {
+                SocialDataService.shared.reset()
+                SocialDataService.shared.seed(for: app.currentUser, workouts: app.workouts)
+            } else {
+                Task { await social.refresh() }
+            }
+        }
     }
 
     @ViewBuilder private var content: some View {

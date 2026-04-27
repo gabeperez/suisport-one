@@ -539,12 +539,12 @@ struct FeedView: View {
 
     // MARK: - Derived
 
-    /// True only when we have NO real session — i.e. the user is
-    /// browsing pre-sign-in fixture data, not a real account. Once
-    /// the auth/session call lands a session token, this flips off
-    /// and the DEMO chip disappears.
+    /// Drives the DEMO chip. True when EITHER we have no real
+    /// session (pre-sign-in fixtures) OR the user has explicitly
+    /// toggled "Show demo data" in Profile settings — both states
+    /// mean the feed isn't sourced from their real account.
     private var isInDemoMode: Bool {
-        APIClient.shared.sessionToken == nil
+        APIClient.shared.sessionToken == nil || app.showDemoData
     }
 
     private var firstName: String {

@@ -723,6 +723,12 @@ struct ProfileView: View {
 
     private var menu: some View {
         VStack(spacing: 0) {
+            demoToggleRow
+            Divider().padding(.leading, 52)
+            menuRow("Reset to demo data", icon: "arrow.counterclockwise") {
+                resetToDemoData()
+            }
+            Divider().padding(.leading, 52)
             menuRow("Cash out to wallet", icon: "arrow.up.right.square.fill") {
                 pendingComingSoon = .cashout
             }
@@ -742,6 +748,39 @@ struct ProfileView: View {
             menuRow("Advanced", icon: "terminal.fill") { showAdvanced = true }
         }
         .background(RoundedRectangle(cornerRadius: Theme.Radius.md).fill(Theme.Color.bgElevated))
+    }
+
+    /// Stage-demo backup: when ON, the feed and clubs stay populated
+    /// from local fixtures instead of being replaced by server data
+    /// on refresh. Persists across launches via AppPersistence.
+    private var demoToggleRow: some View {
+        @Bindable var bindable = app
+        return HStack(spacing: 14) {
+            Image(systemName: "theatermasks.fill")
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundStyle(Theme.Color.inkSoft)
+                .frame(width: 24)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Show demo data")
+                    .font(.bodyL)
+                    .foregroundStyle(Theme.Color.ink)
+                Text("Keep seeded social fixtures visible. Real on-chain actions still fire.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(Theme.Color.inkFaint)
+                    .lineLimit(2)
+            }
+            Spacer(minLength: 8)
+            Toggle("", isOn: $bindable.showDemoData)
+                .labelsHidden()
+        }
+        .padding(.horizontal, Theme.Space.md)
+        .padding(.vertical, 12)
+    }
+
+    private func resetToDemoData() {
+        SocialDataService.shared.reset()
+        SocialDataService.shared.seed(for: app.currentUser, workouts: app.workouts)
+        Haptics.success()
     }
 
     /// Deep-links to iOS Settings → SuiSport where the user can manage push

@@ -26,6 +26,14 @@ final class AppState {
     /// Last sign-in error message — drives the AuthScreen banner so we
     /// stop hiding real failures behind a silent mock fallback.
     var lastAuthError: String?
+    /// Toggle in Profile → Settings. When ON, the seeded fixture feed
+    /// + clubs + athletes stay visible: social.refresh() bails out
+    /// early so server data doesn't overwrite the demo set. The
+    /// FeedView's DEMO chip stays on too. Useful as a stage backup
+    /// for showing rich social context without touching real data.
+    var showDemoData: Bool = AppPersistence.loadShowDemoData() {
+        didSet { AppPersistence.saveShowDemoData(showDemoData) }
+    }
 
     init() {
         // Rehydrate from disk. We do this in the property initializer's

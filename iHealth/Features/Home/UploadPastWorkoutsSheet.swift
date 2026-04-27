@@ -325,8 +325,16 @@ struct UploadPastWorkoutsSheet: View {
                 // Special-case 422 duplicate: mark workout as
                 // already-logged locally so future renders show the
                 // "Already logged" pill instead of a selectable row.
-                if case .server(422, let body) = api,
-                   parseRejectReason(body) == "duplicate_submission" {
+                // Match both `duplicate_submission` and the legacy
+                // `duplicate` short form in case the worker hasn't
+                // been redeployed yet.
+                let reason: String? = {
+                    if case .server(422, let body) = api {
+                        return parseRejectReason(body)
+                    }
+                    return nil
+                }()
+                if reason == "duplicate_submission" || reason == "duplicate" {
                     app.alreadyLoggedWorkoutIDs.insert(w.id)
                     batchResults.append(MintBatchResult(
                         title: "\(w.type.title) · \(w.points) Sweat",
@@ -356,16 +364,23 @@ struct UploadPastWorkoutsSheet: View {
     private func describeAPIError(_ e: APIError) -> String {
         switch e {
         case .server(422, let body):
-            // Parse the structured rejection reason out of the body
-            // via JSON instead of substring match — substring was
-            // fragile to whitespace + key ordering changes.
+            // Map every server vetter reason to friendly copy. New
+            // reasons added to fraud.ts should also land here.
             switch parseRejectReason(body) {
-            case "duplicate_submission":
-                return "Already saved — chain verification syncing"
+            case "duplicate_submission", "duplicate":
+                return "Already logged!"
             case "points_inflated":
                 return "Points too high for the workout duration"
             case "pace_impossible":
                 return "Pace flagged as impossible"
+            case "duration_too_short":
+                return "Workout too short to log (under 1 minute)"
+            case "duration_too_long":
+                return "Workout too long to log (over 24 hours)"
+            case "velocity_exceeded":
+                return "Daily upload limit hit — try again tomorrow"
+            case .some(let reason):
+                return "Rejected: \(reason.replacingOccurrences(of: "_", with: " "))"
             default:
                 return "Rejected by server (422)"
             }

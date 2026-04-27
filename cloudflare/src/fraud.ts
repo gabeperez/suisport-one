@@ -121,7 +121,9 @@ export async function vetWorkout(
     ).bind(athleteId, hash).first();
     if (dup) {
         await logSuspect(env, athleteId, "duplicate_submission", w);
-        return { ok: false, reason: "duplicate" };
+        // Keep the reason string in sync with the suspect log so
+        // iOS can map a single canonical name to friendly copy.
+        return { ok: false, reason: "duplicate_submission" };
     }
 
     return { ok: true, canonicalHash: hash };

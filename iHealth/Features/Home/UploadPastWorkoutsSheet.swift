@@ -275,11 +275,12 @@ struct UploadPastWorkoutsSheet: View {
                         return "Saved — chain step: \(reason.prefix(80))"
                     }
                     switch pipeline {
-                    case "executed":             return "Verified."
-                    case "stubbed":              return "Saved — chain disabled in this build"
-                    case "sui_not_configured":   return "Saved — server not connected to Sui"
-                    case "walrus_upload_failed": return "Saved — proof storage failed"
-                    default:                     return "Saved — \(pipeline)"
+                    case "executed":                 return "Verified."
+                    case "executed_walrus_pending":  return "Verified · proof archive syncing"
+                    case "stubbed":                  return "Saved — chain disabled in this build"
+                    case "sui_not_configured":       return "Saved — server not connected to Sui"
+                    case "walrus_upload_failed":     return "Saved — proof storage failed"
+                    default:                         return "Saved — \(pipeline)"
                     }
                 }()
                 batchResults.append(MintBatchResult(

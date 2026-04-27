@@ -115,14 +115,17 @@ workouts.post("/", async (c) => {
         ).bind(walrusResult.blobId, workoutId).run();
     }
 
-    // 4–5. On-chain mint. Only if all the required config is set AND
-    //      we have a Walrus blob id (the contract takes it as a param).
+    // 4–5. On-chain mint. Runs whenever Sui is configured. Walrus
+    //      upload is best-effort — when it fails (testnet flakiness),
+    //      we still mint to chain with a placeholder blob id so the
+    //      headline "verified on Sui" lands. A reconciler cron sweeps
+    //      walrus-pending workouts later to backfill the real blob.
     let txDigest: string = `pending_${workoutId}`;
     let suiObjectId: string | null = null;
     let sweatMinted = 0;
     let pipelineStatus: string = "stubbed";
 
-    if (hasSuiConfig(c.env) && walrusResult.blobId) {
+    if (hasSuiConfig(c.env)) {
         try {
             // Resolve the operator: if this athlete already has a
             // profile on-chain we MUST sign with the keypair that
@@ -155,6 +158,13 @@ workouts.post("/", async (c) => {
             });
             const finalReward = computeFinalReward(components);
 
+            // Use the real Walrus blob id if upload succeeded; fall
+            // back to a placeholder string the reconciler can detect
+            // and replace on a successful re-upload pass.
+            const blobIdForChain = walrusResult.blobId
+                ?? `walrus_pending_${workoutId}`;
+            const walrusBlobIdBytes = new TextEncoder().encode(blobIdForChain);
+
             const onChain = await submitWorkoutOnChain(c.env, {
                 athlete: athleteId,
                 profileObjectId: profileId,
@@ -163,7 +173,7 @@ workouts.post("/", async (c) => {
                 durationS: Math.floor(body.durationSeconds),
                 distanceM: Math.floor(body.distanceMeters ?? 0),
                 calories: Math.floor(body.energyKcal ?? 0),
-                walrusBlobId: new TextEncoder().encode(walrusResult.blobId),
+                walrusBlobId: walrusBlobIdBytes,
                 baseReward: components.baseReward,
                 prBonus: components.prBonus,
                 challengeBonus: components.challengeBonus,
@@ -173,7 +183,13 @@ workouts.post("/", async (c) => {
             }, operator);
             txDigest = onChain.txDigest;
             sweatMinted = Number(finalReward);
-            pipelineStatus = "executed";
+            // pipelineStatus tracks whether Walrus also landed. Both
+            // states mean the user got their Sweat — only the proof
+            // archive differs, and the reconciler will fix that
+            // asynchronously.
+            pipelineStatus = walrusResult.blobId
+                ? "executed"
+                : "executed_walrus_pending";
             await c.env.DB.prepare(
                 `UPDATE workouts
                  SET sui_tx_digest = ?, verified = 1, sweat_minted = ?
@@ -184,10 +200,8 @@ workouts.post("/", async (c) => {
             // Indexer will NOT retry — user can resubmit if needed.
             pipelineStatus = `sui_failed:${err instanceof Error ? err.message : "unknown"}`;
         }
-    } else if (!hasSuiConfig(c.env)) {
+    } else {
         pipelineStatus = "sui_not_configured";
-    } else if (!walrusResult.blobId) {
-        pipelineStatus = "walrus_upload_failed";
     }
 
     // pointsMinted is what the client should display + animate. When the

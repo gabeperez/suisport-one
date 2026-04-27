@@ -53,7 +53,7 @@ struct RootTabView: View {
 
     @ViewBuilder private var content: some View {
         switch tab {
-        case .feed:    FeedView().id(feedNonce)
+        case .feed:    FeedView(switchTab: { tab = $0 }).id(feedNonce)
         case .clubs:   ClubsView().id(clubsNonce)
         case .explore: ExploreView().id(exploreNonce)
         case .you:     ProfileView().id(profileNonce)

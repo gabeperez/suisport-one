@@ -326,7 +326,7 @@ struct ProfileView: View {
                             .foregroundStyle(.white)
                     }
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("Redeem \(app.sweatPoints.total) Sweat")
+                        Text("Redeem your Sweat")
                             .font(.system(size: 15, weight: .bold, design: .rounded))
                             .foregroundStyle(Theme.Color.ink)
                         Text("Turn it into gear, gift cards, or featured ticket drops.")
@@ -360,10 +360,14 @@ struct ProfileView: View {
 
     private var quickStats: some View {
         VStack(spacing: 10) {
-            // Row 1: workouts, points, lifetime sweat
+            // Row 1: workouts count, on-chain Sweat, lifetime distance.
+            // The Sweat pill mirrors the gold on-chain pill in the
+            // hero — single source of truth for "what you have on
+            // Sui." app.sweatPoints.total (local Apple-Health-derived
+            // sum) shows up as "available to claim" elsewhere.
             HStack(spacing: 10) {
                 statPill(value: "\(app.workouts.count)", label: "Workouts")
-                statPill(value: "\(app.sweatPoints.total)", label: "Sweat")
+                statPill(value: sweatBalance ?? "0", label: "Sweat on Sui")
                 statPill(value: String(format: "%.1f km", totalKm),
                          label: "Lifetime")
             }
@@ -581,6 +585,14 @@ struct ProfileView: View {
                 || app.alreadyLoggedWorkoutIDs.contains($0.id)
         }.count
         let unpublished = total - published
+        // Sum of points from unpublished workouts — what the user
+        // can still claim on chain by publishing more.
+        let claimableSweat = app.workouts
+            .filter {
+                $0.suiTxDigest?.isEmpty != false
+                    && !app.alreadyLoggedWorkoutIDs.contains($0.id)
+            }
+            .reduce(0) { $0 + $1.points }
         return Button {
             Haptics.tap()
             showActivity = true
@@ -606,8 +618,12 @@ struct ProfileView: View {
                             .font(.bodyS).foregroundStyle(Theme.Color.inkSoft)
                             .lineLimit(1)
                     } else {
-                        Text("\(total) workouts · \(published) verified · \(unpublished) ready to publish")
+                        Text("\(claimableSweat.formatted()) Sweat available to claim")
                             .font(.bodyS).foregroundStyle(Theme.Color.inkSoft)
+                            .lineLimit(1)
+                        Text("\(unpublished) of \(total) workouts ready to publish")
+                            .font(.system(size: 11))
+                            .foregroundStyle(Theme.Color.inkFaint)
                             .lineLimit(1)
                     }
                 }

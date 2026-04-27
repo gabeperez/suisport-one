@@ -4,6 +4,12 @@ struct FeedView: View {
     @Environment(AppState.self) private var app
     @Environment(SocialDataService.self) private var social
 
+    /// Optional escape hatch back to RootTabView so the top-right
+    /// avatar can route to the user's own ProfileView (the You tab)
+    /// instead of pushing AthleteProfileView with their fixture-
+    /// built athlete record. RootTabView passes the closure in.
+    var switchTab: ((RootTab) -> Void)? = nil
+
     @State private var selectedItem: FeedItem?
     @State private var selectedAthlete: Athlete?
     @State private var selectedChallenge: Challenge?
@@ -110,7 +116,18 @@ struct FeedView: View {
             }
             Spacer()
             if let me = social.me {
-                Button { selectedAthlete = me } label: {
+                Button {
+                    Haptics.tap()
+                    // Tap your own avatar → jump to the You tab (real
+                    // ProfileView with full data) instead of pushing
+                    // AthleteProfileView, which shows the fixture-
+                    // built record with empty stats.
+                    if let switchTab {
+                        switchTab(.you)
+                    } else {
+                        selectedAthlete = me
+                    }
+                } label: {
                     AthleteAvatar(athlete: me, size: 40)
                 }
                 .buttonStyle(.plain)
@@ -343,7 +360,7 @@ struct FeedView: View {
             HStack(spacing: 8) {
                 Image(systemName: "bolt.heart.fill")
                     .font(.system(size: 14, weight: .semibold))
-                Text("Sweat")
+                Text("Lifetime Sweat earned")
                     .font(.system(size: 13, weight: .semibold, design: .rounded))
             }
             .foregroundStyle(Theme.Color.accentInk.opacity(0.75))

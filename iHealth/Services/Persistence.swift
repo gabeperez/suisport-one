@@ -29,6 +29,12 @@ import Security
 /// Swift 6 strict concurrency infers `@MainActor` from the project's
 /// default actor and APIClient's call site warns about cross-actor
 /// access.
+///
+/// Writes are dispatched to a serial background queue so didSets in
+/// the @MainActor AppState don't block UI taps with synchronous
+/// JSON encode + UserDefaults flush + Keychain calls. Reads stay
+/// synchronous — they only happen at launch and need to return a
+/// value to the caller.
 enum AppPersistence {
     private enum Key {
         static let currentUser = "SuiSportONE.currentUser.v1"
@@ -37,6 +43,13 @@ enum AppPersistence {
     }
     private static let keychainService = "gimme.coffee.iHealth.session"
     private static let keychainAccount = "session-jwt"
+    /// Serial background queue for writes. Keeps disk writes off the
+    /// main thread while preserving order so a save followed by a
+    /// load (rare) sees the latest value.
+    nonisolated(unsafe) private static let writeQueue = DispatchQueue(
+        label: "gimme.coffee.iHealth.persistence",
+        qos: .utility
+    )
 
     nonisolated(unsafe) private static let encoder: JSONEncoder = {
         let e = JSONEncoder()
@@ -52,11 +65,13 @@ enum AppPersistence {
     // MARK: - currentUser
 
     nonisolated static func saveUser(_ user: User?) {
-        let d = UserDefaults.standard
-        if let user, let data = try? encoder.encode(user) {
-            d.set(data, forKey: Key.currentUser)
-        } else {
-            d.removeObject(forKey: Key.currentUser)
+        writeQueue.async {
+            let d = UserDefaults.standard
+            if let user, let data = try? encoder.encode(user) {
+                d.set(data, forKey: Key.currentUser)
+            } else {
+                d.removeObject(forKey: Key.currentUser)
+            }
         }
     }
 
@@ -70,7 +85,9 @@ enum AppPersistence {
     // MARK: - onboarding completion
 
     nonisolated static func saveHasCompletedOnboarding(_ value: Bool) {
-        UserDefaults.standard.set(value, forKey: Key.hasCompletedOnboarding)
+        writeQueue.async {
+            UserDefaults.standard.set(value, forKey: Key.hasCompletedOnboarding)
+        }
     }
 
     nonisolated static func loadHasCompletedOnboarding() -> Bool {
@@ -80,7 +97,9 @@ enum AppPersistence {
     // MARK: - showDemoData
 
     nonisolated static func saveShowDemoData(_ value: Bool) {
-        UserDefaults.standard.set(value, forKey: Key.showDemoData)
+        writeQueue.async {
+            UserDefaults.standard.set(value, forKey: Key.showDemoData)
+        }
     }
 
     nonisolated static func loadShowDemoData() -> Bool {
@@ -90,22 +109,24 @@ enum AppPersistence {
     // MARK: - sessionToken (Keychain)
 
     nonisolated static func saveSessionToken(_ token: String?) {
-        // Always delete first so we can replace cleanly without an
-        // errSecDuplicateItem ping-pong.
-        let baseQuery: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: keychainService,
-            kSecAttrAccount as String: keychainAccount,
-        ]
-        SecItemDelete(baseQuery as CFDictionary)
+        // Keychain SecItemAdd/Delete can take 50–100ms — defer off
+        // the main thread so AppState mutations don't hitch UI.
+        writeQueue.async {
+            let baseQuery: [String: Any] = [
+                kSecClass as String: kSecClassGenericPassword,
+                kSecAttrService as String: keychainService,
+                kSecAttrAccount as String: keychainAccount,
+            ]
+            SecItemDelete(baseQuery as CFDictionary)
 
-        guard let token, !token.isEmpty,
-              let data = token.data(using: .utf8) else { return }
+            guard let token, !token.isEmpty,
+                  let data = token.data(using: .utf8) else { return }
 
-        var add = baseQuery
-        add[kSecValueData as String] = data
-        add[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
-        SecItemAdd(add as CFDictionary, nil)
+            var add = baseQuery
+            add[kSecValueData as String] = data
+            add[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+            SecItemAdd(add as CFDictionary, nil)
+        }
     }
 
     nonisolated static func loadSessionToken() -> String? {

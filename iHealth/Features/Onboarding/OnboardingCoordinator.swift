@@ -6,45 +6,20 @@ struct OnboardingCoordinator: View {
     var body: some View {
         ZStack {
             switch app.onboardingStep {
-            case .hero:
-                HeroScreen()
-                    .transition(.opacity)
-            case .auth:
-                AuthScreen()
-                    .transition(.asymmetric(
-                        insertion: .move(edge: .trailing).combined(with: .opacity),
-                        removal: .move(edge: .leading).combined(with: .opacity)
-                    ))
-            case .nameGoal:
-                NameGoalScreen()
-                    .transition(.asymmetric(
-                        insertion: .move(edge: .trailing).combined(with: .opacity),
-                        removal: .move(edge: .leading).combined(with: .opacity)
-                    ))
-            case .healthPermission:
-                HealthPermissionScreen()
-                    .transition(.asymmetric(
-                        insertion: .move(edge: .trailing).combined(with: .opacity),
-                        removal: .move(edge: .leading).combined(with: .opacity)
-                    ))
-            case .backfill:
-                BackfillScreen()
-                    .transition(.opacity)
-            case .notifications:
-                NotificationsScreen()
-                    .transition(.asymmetric(
-                        insertion: .move(edge: .trailing).combined(with: .opacity),
-                        removal: .opacity
-                    ))
-            case .ageGate:
-                AgeGateScreen()
-                    .transition(.asymmetric(
-                        insertion: .move(edge: .trailing).combined(with: .opacity),
-                        removal: .move(edge: .leading).combined(with: .opacity)
-                    ))
+            case .hero:             HeroScreen().transition(.opacity)
+            case .ageGate:          AgeGateScreen().transition(.opacity)
+            case .auth:             AuthScreen().transition(.opacity)
+            case .nameGoal:         NameGoalScreen().transition(.opacity)
+            case .healthPermission: HealthPermissionScreen().transition(.opacity)
+            case .backfill:         BackfillScreen().transition(.opacity)
+            case .notifications:    NotificationsScreen().transition(.opacity)
             }
         }
-        .animation(Theme.Motion.soft, value: app.onboardingStep)
+        // Cross-fade only — slide+fade asymmetrics on a 0.6s spring made
+        // every step change feel like a 1+ second wait on simulator.
+        // 0.18s easeOut feels near-instant while still giving the brain
+        // a frame of "something happened."
+        .animation(Theme.Motion.linearFast, value: app.onboardingStep)
     }
 }
 

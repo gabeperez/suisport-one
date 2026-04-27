@@ -53,6 +53,22 @@ social.get("/me", async (c) => {
 social.patch("/me", async (c) => {
     const id = requireAthlete(c);
     const body = await parseBody(c, AthletePatchSchema);
+
+    // Pre-check handle uniqueness to surface a friendly 409 before
+    // the UPDATE blows up on the UNIQUE constraint. The athletes
+    // table has UNIQUE on handle (migrations/0001_initial.sql:35).
+    if (body.handle != null) {
+        const taken = await c.env.DB.prepare(
+            `SELECT 1 FROM athletes WHERE handle = ? AND id != ? LIMIT 1`
+        ).bind(body.handle, id).first();
+        if (taken) {
+            return c.json({
+                error: "handle_taken",
+                message: "That username is already in use. Try another.",
+            }, 409);
+        }
+    }
+
     const fields: string[] = [];
     const binds: unknown[] = [];
     if (body.displayName != null) { fields.push("display_name = ?"); binds.push(body.displayName); }
@@ -69,7 +85,21 @@ social.patch("/me", async (c) => {
     if (!fields.length) return c.json({ ok: true });
     fields.push("updated_at = unixepoch()");
     binds.push(id);
-    await c.env.DB.prepare(`UPDATE athletes SET ${fields.join(", ")} WHERE id = ?`).bind(...binds).run();
+    try {
+        await c.env.DB.prepare(`UPDATE athletes SET ${fields.join(", ")} WHERE id = ?`)
+            .bind(...binds).run();
+    } catch (err) {
+        // Belt-and-suspenders: if a race slipped past the pre-check
+        // the UNIQUE constraint will still fire here.
+        const msg = err instanceof Error ? err.message : String(err);
+        if (msg.includes("UNIQUE") && msg.includes("handle")) {
+            return c.json({
+                error: "handle_taken",
+                message: "That username is already in use. Try another.",
+            }, 409);
+        }
+        throw err;
+    }
     const updated = await c.env.DB.prepare("SELECT * FROM athletes WHERE id = ?")
         .bind(id).first<AthleteRow>();
     return c.json({ athlete: updated ? athleteDTO(updated) : null });

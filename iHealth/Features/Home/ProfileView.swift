@@ -322,7 +322,7 @@ struct ProfileView: View {
                         Text("Redeem \(app.sweatPoints.total) Sweat")
                             .font(.system(size: 15, weight: .bold, design: .rounded))
                             .foregroundStyle(Theme.Color.ink)
-                        Text("Turn it into gear, gift cards, or sample on-chain redemptions.")
+                        Text("Turn it into gear, gift cards, or featured ticket drops.")
                             .font(.system(size: 11, weight: .medium, design: .rounded))
                             .foregroundStyle(Theme.Color.inkSoft)
                             .lineLimit(1)
@@ -764,7 +764,7 @@ struct ProfileView: View {
                 Text("Show demo data")
                     .font(.bodyL)
                     .foregroundStyle(Theme.Color.ink)
-                Text("Keep seeded social fixtures visible. Real on-chain actions still fire.")
+                Text("Keep seeded social fixtures visible. Real actions still go through.")
                     .font(.system(size: 11))
                     .foregroundStyle(Theme.Color.inkFaint)
                     .lineLimit(2)
@@ -988,7 +988,7 @@ struct AdvancedSheet: View {
                     }
                     if let url = status.flatMap({ URL(string: "\($0.explorerUrl)/account/\(app.currentUser?.suiAddress ?? "")") }) {
                         Link(destination: url) {
-                            Label("View on Sui explorer", systemImage: "safari")
+                            Label("View account on Sui", systemImage: "safari")
                         }
                     } else {
                         Label("View on Sui explorer", systemImage: "safari")

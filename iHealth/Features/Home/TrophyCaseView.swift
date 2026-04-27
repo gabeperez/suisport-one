@@ -224,7 +224,7 @@ struct TrophyDetailSheet: View {
     }
 
     private var shareText: String {
-        "I just unlocked \(trophy.title) on SuiSport ONE — \(trophy.subtitle). Soulbound and on-chain. suisport.app"
+        "I just unlocked \(trophy.title) on SuiSport ONE — \(trophy.subtitle). Verified on Sui. suisport.app"
     }
 
     private var hero: some View {

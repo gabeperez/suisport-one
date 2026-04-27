@@ -47,7 +47,7 @@ struct LiveRecorderView: View {
                 Task { await finish() }
             }
         } message: {
-            Text("We'll mint the proof + points now.")
+            Text("We'll save it and verify your points.")
         }
         .alert("Couldn't start recording", isPresented: Binding(
             get: { startError != nil },

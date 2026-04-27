@@ -45,14 +45,14 @@ struct UploadPastWorkoutsSheet: View {
                 bottomBar
             }
             .background(Theme.Color.bg.ignoresSafeArea())
-            .navigationTitle("Mint past workouts")
+            .navigationTitle("Upload past workouts")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Done") { dismiss() }
                 }
             }
-            .alert("Mint failed", isPresented: Binding(
+            .alert("Upload failed", isPresented: Binding(
                 get: { errorMsg != nil },
                 set: { if !$0 { errorMsg = nil } }
             )) {
@@ -72,7 +72,7 @@ struct UploadPastWorkoutsSheet: View {
     // MARK: - Header
 
     private var summaryHeader: some View {
-        let mintedCount = app.workouts.filter { $0.suiTxDigest?.isEmpty == false }.count
+        let uploadedCount = app.workouts.filter { $0.suiTxDigest?.isEmpty == false }.count
         return HStack(alignment: .top, spacing: 10) {
             Image(systemName: "bolt.heart.fill")
                 .font(.system(size: 16, weight: .semibold))
@@ -81,7 +81,7 @@ struct UploadPastWorkoutsSheet: View {
                 Text("\(app.workouts.count) workouts in your history")
                     .font(.system(size: 14, weight: .bold, design: .rounded))
                     .foregroundStyle(Theme.Color.ink)
-                Text("\(mintedCount) on chain · \(app.workouts.count - mintedCount) ready to mint")
+                Text("\(uploadedCount) saved · \(app.workouts.count - uploadedCount) ready to upload")
                     .font(.system(size: 12))
                     .foregroundStyle(Theme.Color.inkSoft)
             }
@@ -97,11 +97,11 @@ struct UploadPastWorkoutsSheet: View {
     // MARK: - List
 
     private var workoutsList: some View {
-        // Sort: unminted first, then most recent
+        // Sort: not-yet-uploaded first, then most recent
         let sorted = app.workouts.sorted { a, b in
-            let aMinted = a.suiTxDigest?.isEmpty == false
-            let bMinted = b.suiTxDigest?.isEmpty == false
-            if aMinted != bMinted { return !aMinted }
+            let aUploaded = a.suiTxDigest?.isEmpty == false
+            let bUploaded = b.suiTxDigest?.isEmpty == false
+            if aUploaded != bUploaded { return !aUploaded }
             return a.startDate > b.startDate
         }
         return ScrollView {
@@ -116,14 +116,14 @@ struct UploadPastWorkoutsSheet: View {
     }
 
     private func row(_ w: Workout, index: Int) -> some View {
-        let isMinted = w.suiTxDigest?.isEmpty == false
+        let isUploaded = w.suiTxDigest?.isEmpty == false
         let isSelected = selected.contains(w.id)
-        let canSelect = !isMinted && (isSelected || selected.count < maxSelection)
-        let isCurrentlyMinting = mintingIndex.map { selectedOrdered()[$0].id == w.id } ?? false
+        let canSelect = !isUploaded && (isSelected || selected.count < maxSelection)
+        let isCurrentlyUploading = mintingIndex.map { selectedOrdered()[$0].id == w.id } ?? false
 
         return Button {
-            guard !isMinted, mintingIndex == nil else {
-                if isMinted, let url = txURL(for: w) {
+            guard !isUploaded, mintingIndex == nil else {
+                if isUploaded, let url = txURL(for: w) {
                     UIApplication.shared.open(url)
                 }
                 return
@@ -148,8 +148,8 @@ struct UploadPastWorkoutsSheet: View {
                         .lineLimit(1)
                 }
                 Spacer()
-                trailing(for: w, isMinted: isMinted, isSelected: isSelected,
-                         canSelect: canSelect, isMinting: isCurrentlyMinting)
+                trailing(for: w, isUploaded: isUploaded, isSelected: isSelected,
+                         canSelect: canSelect, isUploading: isCurrentlyUploading)
             }
             .padding(12)
             .background(
@@ -163,7 +163,7 @@ struct UploadPastWorkoutsSheet: View {
                             )
                     )
             )
-            .opacity(canSelect || isMinted || isSelected ? 1.0 : 0.45)
+            .opacity(canSelect || isUploaded || isSelected ? 1.0 : 0.45)
         }
         .buttonStyle(.plain)
         .disabled(mintingIndex != nil)
@@ -171,16 +171,16 @@ struct UploadPastWorkoutsSheet: View {
 
     @ViewBuilder
     private func trailing(
-        for w: Workout, isMinted: Bool, isSelected: Bool,
-        canSelect: Bool, isMinting: Bool
+        for w: Workout, isUploaded: Bool, isSelected: Bool,
+        canSelect: Bool, isUploading: Bool
     ) -> some View {
-        if isMinting {
+        if isUploading {
             ProgressView()
-        } else if isMinted {
+        } else if isUploaded {
             HStack(spacing: 4) {
                 Image(systemName: "checkmark.seal.fill")
                     .font(.system(size: 11, weight: .bold))
-                Text("Minted")
+                Text("Verified")
                     .font(.system(size: 11, weight: .bold, design: .rounded))
                 Image(systemName: "arrow.up.right.square")
                     .font(.system(size: 9, weight: .semibold))
@@ -217,20 +217,20 @@ struct UploadPastWorkoutsSheet: View {
     private var bottomBar: some View {
         VStack(spacing: 6) {
             if let idx = mintingIndex {
-                Text("Minting \(idx + 1) of \(batchTotal)…")
+                Text("Uploading \(idx + 1) of \(batchTotal)…")
                     .font(.system(size: 13, weight: .semibold, design: .rounded))
                     .foregroundStyle(Theme.Color.inkSoft)
             } else if !selected.isEmpty {
-                Text("\(selected.count) of \(maxSelection) selected")
+                Text("\(selected.count) of \(maxSelection) selected · verified on Sui")
                     .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(Theme.Color.inkFaint)
             }
             PrimaryButton(
                 title: mintingIndex != nil
-                    ? "Minting…"
+                    ? "Uploading…"
                     : (selected.isEmpty ? "Select up to \(maxSelection)"
-                       : "Mint \(selected.count) workout\(selected.count == 1 ? "" : "s") on Sui"),
-                icon: mintingIndex != nil ? nil : "bolt.fill",
+                       : "Upload \(selected.count) workout\(selected.count == 1 ? "" : "s")"),
+                icon: mintingIndex != nil ? nil : "checkmark.seal.fill",
                 isLoading: mintingIndex != nil,
                 tint: selected.isEmpty ? Theme.Color.bgElevated : Theme.Color.ink,
                 fg: selected.isEmpty ? Theme.Color.inkFaint : Theme.Color.inkInverse
@@ -267,7 +267,7 @@ struct UploadPastWorkoutsSheet: View {
                 batchResults.append(MintBatchResult(
                     title: "\(w.type.title) · \(w.points) Sweat",
                     txDigest: digest,
-                    error: digest == nil ? "Not yet on chain (pending retry)" : nil
+                    error: digest == nil ? "Saved — verification pending" : nil
                 ))
             } catch {
                 batchResults.append(MintBatchResult(
@@ -340,7 +340,7 @@ private struct BatchResultsSheet: View {
                 .padding(Theme.Space.md)
             }
             .background(Theme.Color.bg.ignoresSafeArea())
-            .navigationTitle("Mint complete")
+            .navigationTitle("Upload complete")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -350,17 +350,17 @@ private struct BatchResultsSheet: View {
         }
     }
 
-    private var minted: Int { results.filter { $0.txDigest != nil }.count }
+    private var verified: Int { results.filter { $0.txDigest != nil }.count }
 
     private var successHeader: some View {
         VStack(spacing: 8) {
             Image(systemName: "sparkles")
                 .font(.system(size: 36, weight: .semibold))
                 .foregroundStyle(Theme.Color.accentDeep)
-            Text("\(minted) of \(results.count) on chain")
+            Text("\(verified) of \(results.count) verified")
                 .font(.displayS)
                 .foregroundStyle(Theme.Color.ink)
-            Text("Each minted workout has its own transaction on Sui — tap any row to verify it on Suiscan.")
+            Text("Each workout is saved with its own verification record. Tap any row to view the proof.")
                 .font(.bodyS)
                 .foregroundStyle(Theme.Color.inkSoft)
                 .multilineTextAlignment(.center)

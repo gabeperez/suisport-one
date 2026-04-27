@@ -92,7 +92,7 @@ struct HeroScreen: View {
                 .lineSpacing(-6)
                 .multilineTextAlignment(.leading)
 
-            Text("Verified training, on-chain rewards,\nbuilt with ONE Championship.")
+            Text("Verified training, real rewards,\nbuilt with ONE Championship.")
                 .font(.system(size: 17, weight: .regular, design: .default))
                 .foregroundStyle(.white.opacity(0.7))
         }

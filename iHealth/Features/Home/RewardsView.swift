@@ -104,18 +104,18 @@ struct RewardsView: View {
         )
     }
 
-    /// Header label for the in-app catalog. Honest about scope: real
-    /// burns are mainnet roadmap; today is sample-only.
+    /// Soft framing for the catalog. Promo codes are still seeded
+    /// fixtures today, but the user-facing copy doesn't yell that.
     private var sampleHeader: some View {
         HStack(alignment: .top, spacing: 10) {
             Image(systemName: "info.circle.fill")
                 .font(.system(size: 14, weight: .semibold))
                 .foregroundStyle(Theme.Color.accentDeep)
             VStack(alignment: .leading, spacing: 2) {
-                Text("In-app rewards (sample)")
+                Text("Featured rewards")
                     .font(.system(size: 13, weight: .bold, design: .rounded))
                     .foregroundStyle(Theme.Color.ink)
-                Text("Codes are local for this hackathon. Tap the on-chain item below to land a real Sui transaction in your wallet.")
+                Text("Tap the ticket below for a verified redemption — your receipt lands on Sui.")
                     .font(.system(size: 12))
                     .foregroundStyle(Theme.Color.inkSoft)
             }
@@ -149,7 +149,7 @@ struct RewardsView: View {
                             .foregroundStyle(.white.opacity(0.95))
                     }
                     Spacer()
-                    Text("LIVE ON SUI")
+                    Text("VERIFIED")
                         .font(.system(size: 9, weight: .heavy, design: .rounded))
                         .tracking(0.8)
                         .foregroundStyle(.white)
@@ -220,7 +220,7 @@ struct RewardsView: View {
                 Task { await redeemTicket() }
             }
         } message: {
-            Text("Redeem 1 Sweat for an ONE Samurai 1 ticket. The redemption will land as a real on-chain transaction on Sui — visible on Suiscan immediately.")
+            Text("Redeem 1 Sweat for an ONE Samurai 1 ticket. You'll get a verified receipt you can show at the gate.")
         }
         .alert("Redemption failed", isPresented: Binding(
             get: { redeemErrorMsg != nil },
@@ -585,7 +585,7 @@ private struct SampleRedemptionSheet: View {
                         HStack(spacing: 10) {
                             Image(systemName: "checkmark.seal.fill")
                                 .font(.system(size: 16, weight: .bold))
-                            Text("View transaction on Sui")
+                            Text("View receipt")
                                 .font(.system(size: 16, weight: .bold, design: .rounded))
                             Spacer()
                             Image(systemName: "arrow.up.right.square")
@@ -610,7 +610,7 @@ private struct SampleRedemptionSheet: View {
 
                 if let walletURL = URL(string: response.walletExplorerUrl) {
                     Link(destination: walletURL) {
-                        Text("View your wallet on Suiscan")
+                        Text("View your account on Sui")
                             .font(.system(size: 13, weight: .semibold, design: .rounded))
                             .foregroundStyle(Theme.Color.inkSoft)
                             .underline()
@@ -756,22 +756,22 @@ private struct SampleRedemptionSheet: View {
     private var receiptDetails: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Text("On-chain receipt")
+                Text("Verified receipt")
                     .font(.system(size: 12, weight: .heavy, design: .rounded))
                     .tracking(0.8)
                     .foregroundStyle(Theme.Color.inkFaint)
                 Spacer()
             }
             HStack {
-                Text("0.001 SUI sent")
+                Text("Status")
                     .font(.bodyM).foregroundStyle(Theme.Color.ink)
                 Spacer()
-                Text("operator → you")
-                    .font(.system(size: 12, weight: .medium, design: .monospaced))
+                Text("Confirmed")
+                    .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(Theme.Color.inkSoft)
             }
             HStack {
-                Text("Tx digest")
+                Text("Reference")
                     .font(.bodyM).foregroundStyle(Theme.Color.ink)
                 Spacer()
                 Text(shortDigest(response.txDigest))

@@ -123,10 +123,10 @@ struct ChallengeDetailView: View {
         let tone = (designer?.avatarTone ?? c.hero)
         VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Text("What you'll mint")
+                Text("What you'll earn")
                     .font(.titleM).foregroundStyle(Theme.Color.ink)
                 Spacer()
-                Text("SOULBOUND")
+                Text("VERIFIED")
                     .font(.system(size: 10, weight: .heavy, design: .rounded))
                     .tracking(0.14)
                     .foregroundStyle(Theme.Color.gold)

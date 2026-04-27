@@ -70,7 +70,7 @@ struct WorkoutDetailView: View {
                 Task { await deleteCurrent() }
             }
         } message: {
-            Text("This removes the workout and its feed post. Proof + points already minted on-chain will stay, but the post won't be visible.")
+            Text("This removes the workout and its feed post. Points and verified records already saved will stay, but the post won't be visible.")
         }
         .alert("Couldn't delete", isPresented: Binding(
             get: { deleteError != nil },
@@ -236,14 +236,14 @@ struct WorkoutDetailView: View {
                         .font(.system(size: 14, weight: .semibold, design: .rounded))
                         .foregroundStyle(Theme.Color.ink)
                     Text(isOnChain
-                         ? "Tap to view this workout's tx on Suiscan"
-                         : "Demo session — tap to view the SuiSport ONE contract")
+                         ? "Tap to see the proof"
+                         : "Sample session · tap to see how proofs work")
                         .font(.system(size: 12))
                         .foregroundStyle(Theme.Color.inkSoft)
                 }
                 Spacer()
                 HStack(spacing: 4) {
-                    Text(isOnChain ? "on Sui" : "package")
+                    Text("on Sui")
                         .font(.labelMono)
                     Image(systemName: "arrow.up.right.square")
                         .font(.system(size: 11, weight: .semibold))

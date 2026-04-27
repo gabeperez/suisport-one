@@ -62,7 +62,7 @@ struct MintSuccessSheet: View {
                     .foregroundStyle(Theme.Color.ink)
                     .contentTransition(.numericText())
                     .frame(maxWidth: .infinity, alignment: .leading)
-                Text("minted on Sui")
+                Text("Workout saved")
                     .font(.system(size: 16, weight: .semibold, design: .rounded))
                     .foregroundStyle(Theme.Color.inkSoft)
             }
@@ -71,15 +71,15 @@ struct MintSuccessSheet: View {
 
             VStack(spacing: 10) {
                 explorerLink(
-                    title: "View tx on Suiscan",
+                    title: "View proof on Sui",
                     subtitle: shortDigest(receipt.txDigest),
-                    icon: "link",
+                    icon: "checkmark.seal.fill",
                     url: receipt.suiscanURL
                 )
                 if let walrus = receipt.walruscanURL {
                     explorerLink(
-                        title: "Walrus proof",
-                        subtitle: "canonical workout JSON",
+                        title: "Permanent record",
+                        subtitle: "tamper-proof workout data",
                         icon: "shippingbox.fill",
                         url: walrus
                     )
@@ -192,7 +192,7 @@ struct MintSuccessSheet: View {
     }
 
     private var disclaimer: some View {
-        Text("Sweat lands directly in your Sui wallet. Same balance you'd see on Suiscan.")
+        Text("Your Sweat is safe and verifiable. Tap above to see the receipt.")
             .font(.system(size: 12))
             .foregroundStyle(Theme.Color.inkFaint)
             .multilineTextAlignment(.leading)

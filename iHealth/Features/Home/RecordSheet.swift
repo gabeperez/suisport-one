@@ -18,7 +18,7 @@ struct RecordSheet: View {
                 Text("Add a workout")
                     .font(.displayS)
                     .foregroundStyle(Theme.Color.ink)
-                Text("Mint past workouts from your history, or record a new session live.")
+                Text("Upload from your Apple Health history, or record a new session live.")
                     .font(.bodyM)
                     .foregroundStyle(Theme.Color.inkSoft)
             }
@@ -64,8 +64,8 @@ struct RecordSheet: View {
     // MARK: - Cards
 
     private var mintPastCard: some View {
-        let mintable = app.workouts.filter { $0.suiTxDigest?.isEmpty != false }.count
-        let minted = app.workouts.count - mintable
+        let uploadable = app.workouts.filter { $0.suiTxDigest?.isEmpty != false }.count
+        let uploaded = app.workouts.count - uploadable
         return Button {
             Haptics.pop()
             showUploadPast = true
@@ -78,18 +78,18 @@ struct RecordSheet: View {
                         .font(.system(size: 22))
                         .foregroundStyle(.white.opacity(0.85))
                 }
-                Text("Mint past workouts")
+                Text("Upload past workouts")
                     .font(.system(size: 22, weight: .bold, design: .rounded))
                     .foregroundStyle(.white)
                 Text(app.workouts.isEmpty
                      ? "Backfill from Apple Health to populate your history"
-                     : "\(mintable) ready to mint · \(minted) already on chain")
+                     : "\(uploadable) ready to upload · \(uploaded) already saved")
                     .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(.white.opacity(0.78))
                 HStack(spacing: 8) {
                     chip("Pick up to 5")
-                    chip("Real Sui txs")
-                    chip("Each gets a digest")
+                    chip("Verified on Sui")
+                    chip("Earn Sweat")
                 }
                 .padding(.top, 4)
             }
@@ -193,7 +193,7 @@ private struct WorkoutTypePicker: View {
                 Text("Pick a workout type")
                     .font(.displayS)
                     .foregroundStyle(Theme.Color.ink)
-                Text("We'll count it, verify it, and mint it on Sui.")
+                Text("We'll count it, verify it, and pay you.")
                     .font(.bodyM)
                     .foregroundStyle(Theme.Color.inkSoft)
             }

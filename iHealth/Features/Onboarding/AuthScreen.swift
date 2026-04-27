@@ -308,7 +308,7 @@ struct AuthScreen: View {
                 "Pick a fighter on the ONE Championship roster, run their official camp — striking, grappling, conditioning, recovery.",
                 icon: "figure.martial.arts")
             row("Verified by your Apple Watch",
-                "Every session is signed by App Attest, blob-stored on Walrus, minted on Sui. No ads. No surveys.",
+                "Every session is signed on your device and saved with a verified receipt. No ads. No surveys.",
                 icon: "checkmark.seal.fill")
             row("Earn rewards from the fighter",
                 "Soulbound trophies signed by the fighter on completion. Plus Sweat and sponsor drops.",

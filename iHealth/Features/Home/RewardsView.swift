@@ -19,6 +19,8 @@ struct RewardsView: View {
     @State private var revealedCode: RevealedCode?
     @State private var sampleRedemption: SampleRedemptionResponse?
     @State private var isRedeemingSample = false
+    @State private var showTicketConfirm = false
+    @State private var redeemErrorMsg: String?
 
     struct RevealedCode: Identifiable {
         let id = UUID()
@@ -126,74 +128,111 @@ struct RewardsView: View {
         )
     }
 
-    /// Hardcoded "spend 1 Sweat for a tiny on-chain transfer" card.
-    /// Drives /v1/rewards/redeem-sample which has the operator
-    /// sponsor a real SUI transfer to the user's address.
+    /// Featured ONE Championship ticket redemption — branded card,
+    /// confirmation flow, on-chain receipt. Drives the demo's
+    /// "real value lands on Sui" moment with a clear consumer hook.
     private var onChainSampleCard: some View {
         let canAfford = app.sweatPoints.total >= 1
         return Button {
             guard canAfford, !isRedeemingSample else { return }
             Haptics.pop()
-            Task { await redeemSample() }
+            showTicketConfirm = true
         } label: {
-            HStack(spacing: 14) {
-                ZStack {
-                    Capsule()
-                        .fill(LinearGradient(
-                            colors: [
-                                Color(red: 0.30, green: 0.65, blue: 0.95),
-                                Color(red: 0.15, green: 0.45, blue: 0.80),
-                            ],
-                            startPoint: .topLeading, endPoint: .bottomTrailing
-                        ))
-                        .frame(width: 56, height: 56)
-                        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-                    Image(systemName: "bolt.fill")
-                        .font(.system(size: 22, weight: .bold))
-                        .foregroundStyle(.white)
-                }
-                VStack(alignment: .leading, spacing: 3) {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack {
                     HStack(spacing: 6) {
-                        Text("On-chain Sample Redemption")
-                            .font(.titleM)
-                            .foregroundStyle(Theme.Color.ink)
-                        Text("LIVE")
-                            .font(.system(size: 9, weight: .heavy, design: .rounded))
-                            .tracking(0.6)
-                            .foregroundStyle(.white)
-                            .padding(.horizontal, 5).padding(.vertical, 2)
-                            .background(Capsule().fill(Theme.Color.hot))
+                        Circle().fill(Color(red: 0.85, green: 0.02, blue: 0.16))
+                            .frame(width: 6, height: 6)
+                        Text("ONE CHAMPIONSHIP")
+                            .font(.system(size: 10, weight: .heavy, design: .rounded))
+                            .tracking(0.20)
+                            .foregroundStyle(.white.opacity(0.95))
                     }
-                    Text("1 Sweat → 0.001 SUI lands in your wallet on Sui testnet")
-                        .font(.bodyS)
-                        .foregroundStyle(Theme.Color.inkSoft)
-                        .lineLimit(2)
+                    Spacer()
+                    Text("LIVE ON SUI")
+                        .font(.system(size: 9, weight: .heavy, design: .rounded))
+                        .tracking(0.8)
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 6).padding(.vertical, 3)
+                        .background(Capsule().fill(.white.opacity(0.18)))
                 }
-                Spacer()
-                if isRedeemingSample {
-                    ProgressView()
-                } else {
-                    Image(systemName: "arrow.right.circle.fill")
-                        .font(.system(size: 22, weight: .semibold))
-                        .foregroundStyle(canAfford ? Theme.Color.ink : Theme.Color.inkFaint)
+                Text("ONE Samurai 1 Ticket")
+                    .font(.system(size: 22, weight: .bold, design: .rounded))
+                    .foregroundStyle(.white)
+                Text("Wed, Apr 29 · Ariake Arena · Tokyo")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(.white.opacity(0.75))
+                HStack(alignment: .firstTextBaseline) {
+                    Text("1 Sweat")
+                        .font(.system(size: 18, weight: .bold, design: .rounded))
+                        .foregroundStyle(.white)
+                    Text("redeem")
+                        .font(.system(size: 11, weight: .semibold, design: .rounded))
+                        .foregroundStyle(.white.opacity(0.65))
+                    Spacer()
+                    if isRedeemingSample {
+                        ProgressView().tint(.white)
+                    } else {
+                        HStack(spacing: 4) {
+                            Text("Redeem")
+                                .font(.system(size: 13, weight: .bold, design: .rounded))
+                            Image(systemName: "arrow.right")
+                                .font(.system(size: 12, weight: .bold))
+                        }
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 12).padding(.vertical, 7)
+                        .background(Capsule().fill(.white.opacity(0.20)))
+                        .overlay(Capsule().strokeBorder(.white.opacity(0.35), lineWidth: 1))
+                    }
                 }
             }
-            .padding(14)
+            .padding(Theme.Space.lg)
+            .frame(maxWidth: .infinity)
             .background(
-                RoundedRectangle(cornerRadius: Theme.Radius.lg, style: .continuous)
-                    .fill(Theme.Color.bgElevated)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: Theme.Radius.lg, style: .continuous)
-                            .strokeBorder(Theme.Color.accentDeep.opacity(0.4), lineWidth: 1)
+                ZStack(alignment: .topTrailing) {
+                    LinearGradient(
+                        colors: [
+                            Color(red: 0.06, green: 0.06, blue: 0.07),
+                            Color(red: 0.20, green: 0.04, blue: 0.06),
+                            Color(red: 0.85, green: 0.02, blue: 0.16),
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
                     )
+                    Circle()
+                        .fill(Color.white.opacity(0.06))
+                        .frame(width: 180, height: 180)
+                        .offset(x: 50, y: -70)
+                }
             )
-            .opacity(canAfford ? 1.0 : 0.6)
+            .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.xl, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: Theme.Radius.xl, style: .continuous)
+                    .strokeBorder(.white.opacity(0.10), lineWidth: 1)
+            )
+            .opacity(canAfford ? 1.0 : 0.7)
         }
         .buttonStyle(.plain)
         .disabled(!canAfford || isRedeemingSample)
+        .alert("Confirm redemption", isPresented: $showTicketConfirm) {
+            Button("Cancel", role: .cancel) {}
+            Button("Redeem 1 Sweat") {
+                Task { await redeemTicket() }
+            }
+        } message: {
+            Text("Redeem 1 Sweat for an ONE Samurai 1 ticket. The redemption will land as a real on-chain transaction on Sui — visible on Suiscan immediately.")
+        }
+        .alert("Redemption failed", isPresented: Binding(
+            get: { redeemErrorMsg != nil },
+            set: { if !$0 { redeemErrorMsg = nil } }
+        )) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(redeemErrorMsg ?? "")
+        }
     }
 
-    private func redeemSample() async {
+    private func redeemTicket() async {
         isRedeemingSample = true
         defer { isRedeemingSample = false }
         do {
@@ -203,8 +242,20 @@ struct RewardsView: View {
             app.sweatPoints.total = max(0, app.sweatPoints.total - resp.costPoints)
             sampleRedemption = resp
             Haptics.success()
+        } catch let api as APIError {
+            switch api {
+            case .server(402, _):
+                redeemErrorMsg = "You need at least 1 Sweat to redeem this ticket."
+            case .server(let code, let body):
+                redeemErrorMsg = "Server error (\(code)). \(body.prefix(120))"
+            case .transport:
+                redeemErrorMsg = "Network error. Try again in a moment."
+            case .notImplemented:
+                redeemErrorMsg = "Redemption isn't available on this build."
+            }
+            Haptics.warn()
         } catch {
-            errorMsg = "Sample redemption failed. Try again in a moment."
+            redeemErrorMsg = error.localizedDescription
             Haptics.warn()
         }
     }
@@ -253,7 +304,7 @@ struct RewardsView: View {
                 Text("\(item.costPoints)")
                     .font(.system(size: 20, weight: .bold, design: .rounded))
                     .foregroundStyle(affordable ? Theme.Color.ink : Theme.Color.inkFaint)
-                Text("points")
+                Text("Sweat")
                     .font(.system(size: 10, weight: .semibold))
                     .foregroundStyle(Theme.Color.inkFaint)
             }
@@ -336,7 +387,7 @@ struct RewardsView: View {
                 .foregroundStyle(Theme.Color.inkFaint)
             Text("No rewards right now")
                 .font(.titleM).foregroundStyle(Theme.Color.ink)
-            Text("We're curating the first drop. Keep logging workouts — your points are safe.")
+            Text("We're curating the first drop. Keep logging workouts — your Sweat is safe.")
                 .font(.bodyS).foregroundStyle(Theme.Color.inkSoft)
                 .multilineTextAlignment(.center)
         }
@@ -406,7 +457,7 @@ private struct RedeemConfirmSheet: View {
             HStack {
                 Text("Cost").font(.bodyM).foregroundStyle(Theme.Color.inkSoft)
                 Spacer()
-                Text("\(item.costPoints) points")
+                Text("\(item.costPoints) Sweat")
                     .font(.system(size: 16, weight: .bold, design: .rounded))
                     .foregroundStyle(Theme.Color.ink)
             }
@@ -417,7 +468,7 @@ private struct RedeemConfirmSheet: View {
             HStack {
                 Text("After").font(.bodyM).foregroundStyle(Theme.Color.inkSoft)
                 Spacer()
-                Text("\(max(0, balance - item.costPoints)) points")
+                Text("\(max(0, balance - item.costPoints)) Sweat")
                     .font(.system(size: 14, weight: .semibold, design: .rounded))
                     .foregroundStyle(affordable ? Theme.Color.ink : .red)
             }
@@ -429,7 +480,7 @@ private struct RedeemConfirmSheet: View {
                 onConfirm()
                 dismiss()
             } label: {
-                Text(affordable ? "Redeem" : "Not enough points")
+                Text(affordable ? "Redeem" : "Not enough Sweat")
                     .font(.system(size: 16, weight: .bold, design: .rounded))
                     .foregroundStyle(.white)
                     .frame(maxWidth: .infinity).frame(height: 52)
@@ -511,129 +562,228 @@ private struct CodeRevealSheet: View {
 }
 
 /// Success sheet shown after the operator sponsors the SUI transfer
-/// for a sample redemption. Surfaces the real tx digest with deep
-/// links to Suiscan + the user's wallet so the on-chain receipt is
-/// auditable from inside the app.
+/// for a ticket redemption. Looks like a ticket receipt — branded
+/// header, perforated stub, prominent "View on Sui" CTA so the user
+/// sees the redemption is real and auditable.
 private struct SampleRedemptionSheet: View {
     let response: SampleRedemptionResponse
     let onDone: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: Theme.Space.lg) {
-            Capsule().fill(Theme.Color.stroke).frame(width: 40, height: 4)
-                .frame(maxWidth: .infinity)
-                .padding(.top, Theme.Space.sm)
+        ScrollView {
+            VStack(spacing: Theme.Space.lg) {
+                Capsule().fill(Theme.Color.stroke).frame(width: 40, height: 4)
+                    .padding(.top, Theme.Space.sm)
 
-            ZStack {
-                Circle()
-                    .fill(Theme.Color.accent.opacity(0.18))
-                    .frame(width: 96, height: 96)
-                Image(systemName: "bolt.fill")
-                    .font(.system(size: 44, weight: .semibold))
-                    .foregroundStyle(Theme.Color.accentDeep)
+                // Ticket card — ONE-branded, looks like a pass.
+                ticketCard
+
+                receiptDetails
+
+                if let url = URL(string: response.txExplorerUrl) {
+                    Link(destination: url) {
+                        HStack(spacing: 10) {
+                            Image(systemName: "checkmark.seal.fill")
+                                .font(.system(size: 16, weight: .bold))
+                            Text("View transaction on Sui")
+                                .font(.system(size: 16, weight: .bold, design: .rounded))
+                            Spacer()
+                            Image(systemName: "arrow.up.right.square")
+                                .font(.system(size: 14, weight: .semibold))
+                        }
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 18).padding(.vertical, 14)
+                        .frame(maxWidth: .infinity)
+                        .background(
+                            Capsule().fill(LinearGradient(
+                                colors: [
+                                    Color(red: 0.30, green: 0.65, blue: 0.95),
+                                    Color(red: 0.15, green: 0.45, blue: 0.80),
+                                ],
+                                startPoint: .topLeading, endPoint: .bottomTrailing
+                            ))
+                        )
+                        .overlay(Capsule().strokeBorder(.white.opacity(0.18), lineWidth: 1))
+                    }
+                    .buttonStyle(.plain)
+                }
+
+                if let walletURL = URL(string: response.walletExplorerUrl) {
+                    Link(destination: walletURL) {
+                        Text("View your wallet on Suiscan")
+                            .font(.system(size: 13, weight: .semibold, design: .rounded))
+                            .foregroundStyle(Theme.Color.inkSoft)
+                            .underline()
+                    }
+                    .buttonStyle(.plain)
+                }
+
+                Text(response.message)
+                    .font(.system(size: 11))
+                    .foregroundStyle(Theme.Color.inkFaint)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, Theme.Space.md)
+
+                PrimaryButton(
+                    title: "Done",
+                    tint: Theme.Color.ink,
+                    fg: Theme.Color.inkInverse
+                ) {
+                    Haptics.tap()
+                    onDone()
+                }
+
+                Color.clear.frame(height: 12)
             }
-            .frame(maxWidth: .infinity)
-
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Sample redemption complete")
-                    .font(.displayS)
-                    .foregroundStyle(Theme.Color.ink)
-                Text("\(response.suiAmountDisplay) SUI just landed in your wallet from the operator.")
-                    .font(.bodyM)
-                    .foregroundStyle(Theme.Color.inkSoft)
-            }
-
-            Text(response.message)
-                .font(.system(size: 12))
-                .foregroundStyle(Theme.Color.inkFaint)
-                .padding(12)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(
-                    RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous)
-                        .fill(Theme.Color.bgElevated)
-                )
-
-            VStack(spacing: 10) {
-                explorerRow(
-                    title: "View tx on Suiscan",
-                    subtitle: shortDigest(response.txDigest),
-                    icon: "link",
-                    url: response.txExplorerUrl
-                )
-                explorerRow(
-                    title: "View your wallet",
-                    subtitle: "operator → your address",
-                    icon: "wallet.pass.fill",
-                    url: response.walletExplorerUrl
-                )
-            }
-
-            Spacer(minLength: 0)
-
-            PrimaryButton(
-                title: "Done",
-                tint: Theme.Color.ink,
-                fg: Theme.Color.inkInverse
-            ) {
-                Haptics.tap()
-                onDone()
-            }
+            .padding(Theme.Space.lg)
         }
-        .padding(Theme.Space.lg)
         .background(Theme.Color.bg.ignoresSafeArea())
         .presentationDetents([.large])
         .presentationCornerRadius(Theme.Radius.xl)
         .onAppear { Haptics.success() }
     }
 
-    private func explorerRow(
-        title: String,
-        subtitle: String,
-        icon: String,
-        url: String
-    ) -> some View {
-        Group {
-            if let u = URL(string: url) {
-                Link(destination: u) {
-                    rowLabel(title: title, subtitle: subtitle, icon: icon)
+    private var ticketCard: some View {
+        VStack(spacing: 0) {
+            // Top half: event details
+            VStack(alignment: .leading, spacing: 10) {
+                HStack {
+                    HStack(spacing: 6) {
+                        Circle().fill(Color(red: 0.85, green: 0.02, blue: 0.16))
+                            .frame(width: 6, height: 6)
+                        Text("ONE CHAMPIONSHIP")
+                            .font(.system(size: 10, weight: .heavy, design: .rounded))
+                            .tracking(0.18)
+                            .foregroundStyle(.white.opacity(0.92))
+                    }
+                    Spacer()
+                    Text("ADMIT ONE")
+                        .font(.system(size: 9, weight: .heavy, design: .rounded))
+                        .tracking(1.2)
+                        .foregroundStyle(.white.opacity(0.7))
                 }
-                .buttonStyle(.plain)
-            } else {
-                rowLabel(title: title, subtitle: subtitle, icon: icon)
-                    .opacity(0.6)
+
+                Text("ONE Samurai 1")
+                    .font(.system(size: 28, weight: .bold, design: .rounded))
+                    .foregroundStyle(.white)
+
+                HStack(spacing: 18) {
+                    ticketField(label: "Date", value: "Apr 29")
+                    ticketField(label: "Venue", value: "Ariake")
+                    ticketField(label: "City", value: "Tokyo")
+                }
+                .padding(.top, 4)
             }
+            .padding(Theme.Space.lg)
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            // Perforation
+            HStack(spacing: 6) {
+                Circle().fill(Theme.Color.bg).frame(width: 14, height: 14)
+                    .offset(x: -7)
+                ForEach(0..<24, id: \.self) { _ in
+                    Capsule().fill(.white.opacity(0.25)).frame(width: 8, height: 1)
+                }
+                Spacer()
+                Circle().fill(Theme.Color.bg).frame(width: 14, height: 14)
+                    .offset(x: 7)
+            }
+            .padding(.horizontal, 4)
+
+            // Bottom half: redemption stub
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("REDEMPTION ID")
+                        .font(.system(size: 9, weight: .heavy, design: .rounded))
+                        .tracking(0.8)
+                        .foregroundStyle(.white.opacity(0.55))
+                    Text(response.redemptionId)
+                        .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
+                }
+                Spacer()
+                VStack(alignment: .trailing, spacing: 2) {
+                    Text("PAID")
+                        .font(.system(size: 9, weight: .heavy, design: .rounded))
+                        .tracking(0.8)
+                        .foregroundStyle(.white.opacity(0.55))
+                    Text("\(response.costPoints) Sweat")
+                        .font(.system(size: 13, weight: .bold, design: .rounded))
+                        .foregroundStyle(.white)
+                }
+            }
+            .padding(Theme.Space.lg)
+        }
+        .background(
+            ZStack(alignment: .topTrailing) {
+                LinearGradient(
+                    colors: [
+                        Color(red: 0.06, green: 0.06, blue: 0.07),
+                        Color(red: 0.20, green: 0.04, blue: 0.06),
+                        Color(red: 0.85, green: 0.02, blue: 0.16),
+                    ],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+                Circle()
+                    .fill(Color.white.opacity(0.06))
+                    .frame(width: 220, height: 220)
+                    .offset(x: 70, y: -90)
+            }
+        )
+        .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.xl, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: Theme.Radius.xl, style: .continuous)
+                .strokeBorder(.white.opacity(0.10), lineWidth: 1)
+        )
+        .shadow(color: Color(red: 0.85, green: 0.02, blue: 0.16).opacity(0.25),
+                radius: 18, y: 8)
+    }
+
+    private func ticketField(label: String, value: String) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(label)
+                .font(.system(size: 9, weight: .heavy, design: .rounded))
+                .tracking(0.8)
+                .foregroundStyle(.white.opacity(0.55))
+            Text(value)
+                .font(.system(size: 14, weight: .bold, design: .rounded))
+                .foregroundStyle(.white)
         }
     }
 
-    private func rowLabel(title: String, subtitle: String, icon: String) -> some View {
-        HStack(spacing: 12) {
-            Image(systemName: icon)
-                .font(.system(size: 16, weight: .semibold))
-                .foregroundStyle(Theme.Color.accentDeep)
-                .frame(width: 32, height: 32)
-                .background(Circle().fill(Theme.Color.accent.opacity(0.18)))
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title)
-                    .font(.system(size: 14, weight: .semibold, design: .rounded))
-                    .foregroundStyle(Theme.Color.ink)
-                Text(subtitle)
+    private var receiptDetails: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("On-chain receipt")
+                    .font(.system(size: 12, weight: .heavy, design: .rounded))
+                    .tracking(0.8)
+                    .foregroundStyle(Theme.Color.inkFaint)
+                Spacer()
+            }
+            HStack {
+                Text("0.001 SUI sent")
+                    .font(.bodyM).foregroundStyle(Theme.Color.ink)
+                Spacer()
+                Text("operator → you")
                     .font(.system(size: 12, weight: .medium, design: .monospaced))
                     .foregroundStyle(Theme.Color.inkSoft)
-                    .lineLimit(1)
             }
-            Spacer()
-            Image(systemName: "arrow.up.right.square")
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(Theme.Color.inkFaint)
+            HStack {
+                Text("Tx digest")
+                    .font(.bodyM).foregroundStyle(Theme.Color.ink)
+                Spacer()
+                Text(shortDigest(response.txDigest))
+                    .font(.system(size: 12, weight: .medium, design: .monospaced))
+                    .foregroundStyle(Theme.Color.inkSoft)
+            }
         }
         .padding(14)
+        .frame(maxWidth: .infinity)
         .background(
             RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous)
                 .fill(Theme.Color.bgElevated)
-                .overlay(
-                    RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous)
-                        .strokeBorder(Theme.Color.stroke, lineWidth: 1)
-                )
         )
     }
 

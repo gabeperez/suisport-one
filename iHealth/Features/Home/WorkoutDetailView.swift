@@ -569,9 +569,18 @@ struct StreakSheet: View {
             PrimaryButton(title: "Stake \(stake) Sweat",
                           icon: "lock.fill",
                           tint: Theme.Color.ink, fg: Theme.Color.inkInverse) {
-                SocialDataService.shared.stakeStreak(amount: stake)
+                let amount = stake
                 Haptics.success()
+                // Dismiss immediately, run the mutation on the next
+                // runloop tick. Mutating @Observable state inside a
+                // sheet's action block + dismissing in the same tick
+                // can wedge SwiftUI's sheet animator on real devices
+                // — was reproducible as the "freeze on Stake X Sweat"
+                // bug in QA.
                 dismiss()
+                Task { @MainActor in
+                    SocialDataService.shared.stakeStreak(amount: amount)
+                }
             }
             GhostButton(title: "Not now") { dismiss() }
         }

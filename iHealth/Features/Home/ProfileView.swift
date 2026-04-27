@@ -50,7 +50,7 @@ struct ProfileView: View {
                             showShare = true
                         } label: { Label("Share profile", systemImage: "square.and.arrow.up") }
                         Button { showRewards = true } label: {
-                            Label("Redeem points", systemImage: "gift.fill")
+                            Label("Redeem Sweat", systemImage: "gift.fill")
                         }
                         Button { showAdvanced = true } label: {
                             Label("Advanced", systemImage: "terminal")
@@ -97,7 +97,7 @@ struct ProfileView: View {
                     app.signOut()
                 }
             } message: {
-                Text("You'll need to sign back in to see your workouts and points.")
+                Text("You'll need to sign back in to see your workouts and Sweat.")
             }
             .sheet(item: $selectedTrophy) { t in
                 TrophyDetailSheet(trophy: t)
@@ -356,7 +356,7 @@ struct ProfileView: View {
             // Row 1: workouts, points, lifetime sweat
             HStack(spacing: 10) {
                 statPill(value: "\(app.workouts.count)", label: "Workouts")
-                statPill(value: "\(app.sweatPoints.total)", label: "Points")
+                statPill(value: "\(app.sweatPoints.total)", label: "Sweat")
                 statPill(value: String(format: "%.1f km", totalKm),
                          label: "Lifetime")
             }

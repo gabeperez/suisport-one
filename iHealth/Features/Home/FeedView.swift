@@ -114,46 +114,51 @@ struct FeedView: View {
 
     // MARK: - Offline / error banner
 
+    /// The whole banner is one Button. Avoids any nested-button +
+    /// adjacent-Button hit-test conflict with the giant Samurai card
+    /// below — tapping anywhere on the banner triggers a refresh.
     private var offlineBanner: some View {
-        HStack(spacing: 10) {
-            Image(systemName: social.isOffline ? "wifi.slash" : "exclamationmark.triangle.fill")
-                .font(.system(size: 15, weight: .bold))
-                .foregroundStyle(Theme.Color.hot)
-            Text(social.isUnauthorized
-                 ? "Sign in to load your feed."
-                 : "Couldn't refresh feed — check your connection.")
-                .font(.system(size: 13, weight: .medium, design: .rounded))
-                .foregroundStyle(Theme.Color.ink)
-                .lineLimit(2)
-            Spacer(minLength: 8)
-            Button {
-                Haptics.tap()
-                Task { await social.refresh() }
-            } label: {
-                Text("Retry")
-                    .font(.system(size: 13, weight: .bold, design: .rounded))
-                    .foregroundStyle(Theme.Color.inkInverse)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 8)
-                    .background(Capsule().fill(Theme.Color.ink))
-                    .contentShape(Capsule())
+        Button {
+            Haptics.tap()
+            Task { await social.refresh() }
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: social.isOffline ? "wifi.slash" : "exclamationmark.triangle.fill")
+                    .font(.system(size: 15, weight: .bold))
+                    .foregroundStyle(Theme.Color.hot)
+                Text(social.isUnauthorized
+                     ? "Sign in to load your feed."
+                     : "Tap to retry — couldn't refresh feed.")
+                    .font(.system(size: 13, weight: .semibold, design: .rounded))
+                    .foregroundStyle(Theme.Color.ink)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.leading)
+                Spacer(minLength: 8)
+                if social.isRefreshing {
+                    ProgressView()
+                        .controlSize(.small)
+                } else {
+                    Image(systemName: "arrow.clockwise")
+                        .font(.system(size: 13, weight: .bold))
+                        .foregroundStyle(Theme.Color.inkInverse)
+                        .padding(8)
+                        .background(Circle().fill(Theme.Color.ink))
+                }
             }
-            .buttonStyle(.plain)
-            .disabled(social.isRefreshing)
-            .zIndex(1)
+            .padding(12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous)
+                    .fill(Theme.Color.hot.opacity(0.12))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous)
+                    .strokeBorder(Theme.Color.hot.opacity(0.3), lineWidth: 1)
+            )
+            .contentShape(RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous))
         }
-        .padding(12)
-        .background(
-            RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous)
-                .fill(Theme.Color.hot.opacity(0.12))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous)
-                .strokeBorder(Theme.Color.hot.opacity(0.3), lineWidth: 1)
-        )
-        // Constrain hit area to the banner itself so the giant Samurai
-        // card below doesn't swallow taps that should land on Retry.
-        .contentShape(RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous))
+        .buttonStyle(.plain)
+        .disabled(social.isRefreshing)
     }
 
     // MARK: - ONE Samurai 1 hero card
@@ -250,6 +255,10 @@ struct FeedView: View {
                     RoundedRectangle(cornerRadius: Theme.Radius.xl, style: .continuous)
                         .strokeBorder(.white.opacity(0.08), lineWidth: 1)
                 )
+                // Tight hit area so an adjacent banner's taps can't
+                // accidentally land on the Samurai card above it.
+                .contentShape(RoundedRectangle(cornerRadius: Theme.Radius.xl,
+                                               style: .continuous))
             }
             .buttonStyle(.plain)
         }

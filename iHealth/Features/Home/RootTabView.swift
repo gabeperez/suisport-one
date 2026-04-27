@@ -8,6 +8,15 @@ struct RootTabView: View {
     @State private var tab: RootTab = .feed
     @State private var showRecord = false
 
+    // Per-tab nonce. Re-tapping the active tab bumps the nonce, which
+    // changes the SwiftUI identity of that tab's root view and forces
+    // the view (including any pushed NavigationStack) to recreate
+    // from scratch — same UX as iOS native TabView's tap-to-root.
+    @State private var feedNonce = UUID()
+    @State private var clubsNonce = UUID()
+    @State private var exploreNonce = UUID()
+    @State private var profileNonce = UUID()
+
     var body: some View {
         ZStack(alignment: .bottom) {
             content
@@ -44,10 +53,10 @@ struct RootTabView: View {
 
     @ViewBuilder private var content: some View {
         switch tab {
-        case .feed: FeedView()
-        case .clubs: ClubsView()
-        case .explore: ExploreView()
-        case .you: ProfileView()
+        case .feed:    FeedView().id(feedNonce)
+        case .clubs:   ClubsView().id(clubsNonce)
+        case .explore: ExploreView().id(exploreNonce)
+        case .you:     ProfileView().id(profileNonce)
         }
     }
 
@@ -74,7 +83,19 @@ struct RootTabView: View {
     private func tabItem(_ t: RootTab, icon: String, label: String) -> some View {
         Button {
             Haptics.tap()
-            withAnimation(Theme.Motion.snap) { tab = t }
+            if tab == t {
+                // Re-tap on the active tab → pop to root by recycling
+                // the tab view's identity. Matches iOS native TabView
+                // behavior (tap Home twice → top of feed).
+                switch t {
+                case .feed:    feedNonce = UUID()
+                case .clubs:   clubsNonce = UUID()
+                case .explore: exploreNonce = UUID()
+                case .you:     profileNonce = UUID()
+                }
+            } else {
+                withAnimation(Theme.Motion.snap) { tab = t }
+            }
         } label: {
             let selected = tab == t
             VStack(spacing: 2) {

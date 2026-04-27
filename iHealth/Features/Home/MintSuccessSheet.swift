@@ -62,7 +62,7 @@ struct MintSuccessSheet: View {
                     .foregroundStyle(Theme.Color.ink)
                     .contentTransition(.numericText())
                     .frame(maxWidth: .infinity, alignment: .leading)
-                Text("Workout saved")
+                Text("Earned")
                     .font(.system(size: 16, weight: .semibold, design: .rounded))
                     .foregroundStyle(Theme.Color.inkSoft)
             }

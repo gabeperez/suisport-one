@@ -14,8 +14,16 @@ import { z } from "zod";
 import type { Env, Variables } from "../env.js";
 import { requireAthlete } from "../auth.js";
 import { parseBody } from "../validation.js";
+import { sponsorSuiTransfer } from "../sui.js";
 
 export const rewards = new Hono<{ Bindings: Env; Variables: Variables }>();
+
+/// Sample-redemption nominal cost + payout. 1 Sweat off-chain unlocks a
+/// 0.001 SUI sponsored transfer from operator → user. The on-chain
+/// footprint is the demo proof-point — it shows judges that the
+/// redemption path connects to Sui without requiring a Move upgrade.
+const SAMPLE_REDEEM_COST = 1;
+const SAMPLE_REDEEM_PAYOUT_MIST = 1_000_000n; // 0.001 SUI
 
 // Public catalog — no auth required (the iOS app shows it before the
 // user signs up too, as a "what can I earn" preview). Only returns
@@ -150,6 +158,75 @@ rewards.post("/rewards/redeem", async (c) => {
         redemptionId,
         code: popped.code,
         costPoints: item.cost_points,
+    });
+});
+
+// Sample on-chain redemption — spends 1 Sweat off-chain, sponsors a
+// tiny SUI transfer back to the user's wallet. This is the demo's
+// "redemption connects to Sui" moment without touching the Move package.
+//
+// Failure semantics: if the on-chain transfer throws after we already
+// debited the user, we credit the point back. We surface the original
+// chain error to the client so the iOS UI can show a useful message.
+rewards.post("/rewards/redeem-sample", async (c) => {
+    const athleteId = requireAthlete(c);
+
+    // Athlete id IS the Sui address for zkLogin / wallet users (set by
+    // requireAthlete from the session row). Demo athleteIds start with
+    // "0xdemo_" and don't have a real address — reject those.
+    const isRealAddress =
+        athleteId.startsWith("0x") && athleteId.length === 66;
+    if (!isRealAddress) {
+        return c.json({
+            error: "no_wallet",
+            message: "Sample redemption needs a real Sui address. Sign in with Apple, Google, or a wallet.",
+        }, 400);
+    }
+
+    // Spend 1 Sweat conditionally.
+    const spend = await c.env.DB.prepare(
+        `UPDATE sweat_points SET total = total - ?
+         WHERE athlete_id = ? AND total >= ?`
+    ).bind(SAMPLE_REDEEM_COST, athleteId, SAMPLE_REDEEM_COST).run();
+    if ((spend.meta.changes ?? 0) === 0) {
+        return c.json({ error: "insufficient_points" }, 402);
+    }
+
+    // Sponsor the on-chain receipt.
+    let txDigest: string;
+    try {
+        const res = await sponsorSuiTransfer(
+            c.env,
+            athleteId,
+            SAMPLE_REDEEM_PAYOUT_MIST,
+        );
+        txDigest = res.txDigest;
+    } catch (err) {
+        // Refund the Sweat we just spent — we never want a user to lose
+        // a point with no on-chain receipt.
+        await c.env.DB.prepare(
+            `UPDATE sweat_points SET total = total + ?
+             WHERE athlete_id = ?`
+        ).bind(SAMPLE_REDEEM_COST, athleteId).run();
+        return c.json({
+            error: "onchain_failed",
+            message: err instanceof Error ? err.message : "unknown",
+        }, 502);
+    }
+
+    const explorerBase = c.env.SUI_NETWORK === "mainnet"
+        ? "https://suiscan.xyz/mainnet"
+        : "https://suiscan.xyz/testnet";
+
+    return c.json({
+        redemptionId: `rd_sample_${crypto.randomUUID().replace(/-/g, "").slice(0, 16)}`,
+        costPoints: SAMPLE_REDEEM_COST,
+        suiAmountMist: SAMPLE_REDEEM_PAYOUT_MIST.toString(),
+        suiAmountDisplay: "0.001",
+        txDigest,
+        txExplorerUrl: `${explorerBase}/tx/${txDigest}`,
+        walletExplorerUrl: `${explorerBase}/account/${athleteId}`,
+        message: "This is a sample redemption for SuiSport ONE utilizing Sui. Real prizes will burn Sweat on mainnet.",
     });
 });
 

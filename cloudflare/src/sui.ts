@@ -354,6 +354,37 @@ export async function resolveSuiNS(
     }
 }
 
+/** Sponsor a tiny SUI transfer from the operator's gas pool to a user's
+ *  address. Used for sample-redemption demos: spending 1 Sweat off-chain
+ *  triggers a real on-chain receipt the user can show on Suiscan.
+ *
+ *  Operator pays gas + sends the lamports — user signs nothing. Amount is
+ *  in MIST (1 SUI = 1e9 MIST). 0.001 SUI = 1_000_000 MIST is a safe
+ *  default that's clearly nominal but enough to leave a real footprint. */
+export async function sponsorSuiTransfer(
+    env: SuiEnv,
+    recipient: string,
+    amountMist: bigint,
+): Promise<{ txDigest: string }> {
+    const pool = operatorKeyPool(env);
+    if (pool.length === 0) {
+        throw new Error("operator_unconfigured");
+    }
+    const signer = operatorKeypair(pool[0]);
+    const client = suiClient(env);
+
+    const tx = new Transaction();
+    const [coin] = tx.splitCoins(tx.gas, [tx.pure.u64(amountMist)]);
+    tx.transferObjects([coin], tx.pure.address(recipient));
+
+    const res = await client.signAndExecuteTransaction({
+        signer,
+        transaction: tx,
+        options: { showEffects: true },
+    });
+    return { txDigest: res.digest };
+}
+
 /** Derive the primary operator's Sui address, useful for the status
  *  endpoint + setup scripts. Returns the address of the FIRST key in
  *  the pool (or the legacy single key when only that's set). */

@@ -190,10 +190,20 @@ workouts.post("/", async (c) => {
         pipelineStatus = "walrus_upload_failed";
     }
 
+    // pointsMinted is what the client should display + animate. When the
+    // on-chain mint succeeded, this is the *post-formula* amount (after
+    // bonuses, decay, per-tx ceiling) in display units — i.e. exactly
+    // what landed in the user's wallet on Sui. When the on-chain step
+    // didn't run (stub mode) or failed, fall back to the client's
+    // declared base so the UI doesn't go dark.
+    const sweatMintedDisplay = sweatMinted > 0
+        ? Math.floor(sweatMinted / 1_000_000_000)
+        : body.points;
+
     return c.json({
         workoutId,
         feedItemId: feedId,
-        pointsMinted: body.points,
+        pointsMinted: sweatMintedDisplay,
         txDigest,
         suiObjectId,
         walrusBlobId: walrusResult.blobId,

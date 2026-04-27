@@ -305,17 +305,18 @@ struct UploadPastWorkoutsSheet: View {
         switch e {
         case .server(422, let body):
             // Parse the structured rejection reason out of the body
-            // so users see "Already saved" instead of raw JSON.
-            if body.contains("\"duplicate_submission\"") {
+            // via JSON instead of substring match — substring was
+            // fragile to whitespace + key ordering changes.
+            switch parseRejectReason(body) {
+            case "duplicate_submission":
                 return "Already saved — chain verification syncing"
-            }
-            if body.contains("\"points_inflated\"") {
+            case "points_inflated":
                 return "Points too high for the workout duration"
-            }
-            if body.contains("\"pace_impossible\"") {
+            case "pace_impossible":
                 return "Pace flagged as impossible"
+            default:
+                return "Rejected by server (422)"
             }
-            return "Rejected by server (422)"
         case .server(401, _):
             return "Sign in expired"
         case .server(let code, let msg):
@@ -323,6 +324,13 @@ struct UploadPastWorkoutsSheet: View {
         case .transport: return "Network error"
         case .notImplemented: return "Not available on this build"
         }
+    }
+
+    private func parseRejectReason(_ body: String) -> String? {
+        guard let data = body.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else { return nil }
+        return json["reason"] as? String
     }
 
     // MARK: - Empty

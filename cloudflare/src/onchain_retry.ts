@@ -124,7 +124,9 @@ export async function retryPendingWorkoutsTick(env: Env): Promise<RetryTickResul
                 athlete: row.athlete_id,
                 profileObjectId: profileId,
                 workoutType: workoutTypeCode(row.type),
-                timestampMs: BigInt(row.start_date * 1000),
+                // start_date can be REAL in D1 (fractional seconds
+                // preserved from iOS). BigInt requires integer.
+                timestampMs: BigInt(Math.floor(row.start_date * 1000)),
                 durationS: Math.floor(row.duration_seconds),
                 distanceM: Math.floor(row.distance_meters ?? 0),
                 calories: Math.floor(row.energy_kcal ?? 0),

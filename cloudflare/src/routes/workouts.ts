@@ -169,7 +169,11 @@ workouts.post("/", async (c) => {
                 athlete: athleteId,
                 profileObjectId: profileId,
                 workoutType: workoutTypeCode(body.type),
-                timestampMs: BigInt(body.startDate * 1000),
+                // iOS sends body.startDate as a Double from
+                // Date.timeIntervalSince1970 which carries fractional
+                // seconds. BigInt rejects non-integers. Floor to
+                // millisecond integer before constructing.
+                timestampMs: BigInt(Math.floor(body.startDate * 1000)),
                 durationS: Math.floor(body.durationSeconds),
                 distanceM: Math.floor(body.distanceMeters ?? 0),
                 calories: Math.floor(body.energyKcal ?? 0),

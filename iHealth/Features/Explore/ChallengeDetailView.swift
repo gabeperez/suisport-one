@@ -126,7 +126,7 @@ struct ChallengeDetailView: View {
                 Text("What you'll earn")
                     .font(.titleM).foregroundStyle(Theme.Color.ink)
                 Spacer()
-                Text("VERIFIED")
+                Text("SOULBOUND")
                     .font(.system(size: 10, weight: .heavy, design: .rounded))
                     .tracking(0.14)
                     .foregroundStyle(Theme.Color.gold)

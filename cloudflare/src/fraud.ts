@@ -94,8 +94,17 @@ export async function vetWorkout(
         }
     }
 
-    // 4. Points sanity (prevents client from claiming arbitrary minting).
-    const maxPointsByMinute = 4;
+    // 4. Points sanity. Loose cap that accommodates the iOS
+    //    `SweatPoints.forWorkout` rates (e.g. ride = 60 pts/km +
+    //    2 pts/min — a 30 km ride in 90 min legitimately scores
+    //    ~22 pts/min). The cap is still here to reject obviously
+    //    fake claims (1 min = 1,000,000 points), but it no longer
+    //    blocks normal high-volume workouts. The on-chain mint
+    //    amount is recomputed server-side from the validated
+    //    duration + distance regardless, so this cap doesn't gate
+    //    what actually mints — it only gates what gets accepted
+    //    into the feed at all.
+    const maxPointsByMinute = 30;
     const cap = Math.ceil(w.durationSeconds / 60) * maxPointsByMinute;
     if (w.points > cap) {
         await logSuspect(env, athleteId, "points_inflated",

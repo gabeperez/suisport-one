@@ -43,14 +43,38 @@ final class AppState {
         let savedDone = AppPersistence.loadHasCompletedOnboarding()
         self.currentUser = savedUser
         self.hasCompletedOnboarding = savedDone
-        // If we have a session, verify it's still valid against the
-        // server and clear if expired. Fire-and-forget; the UI can
-        // render immediately from the cached snapshot.
+
+        // If we have a persisted user, seed the social fixtures
+        // synchronously so the feed/clubs/challenges show up
+        // immediately on launch — without this, a returning user
+        // who skips onboarding (because hasCompletedOnboarding=true)
+        // sees an empty app until BackfillScreen would have run
+        // (which it doesn't, because we skipped onboarding). The
+        // seed call is guarded so a fresh-onboarding flow that
+        // already seeded won't double-seed.
+        if savedUser != nil {
+            SocialDataService.shared.seed(for: savedUser, workouts: [])
+        }
+
+        // Background: verify session validity + reload HealthKit
+        // history so workouts + sweatPoints repopulate after relaunch.
         if APIClient.shared.sessionToken != nil, savedUser != nil {
             Task { [weak self] in
                 await self?.verifySessionOnLaunch()
+                await self?.rehydrateWorkoutsOnLaunch()
             }
         }
+    }
+
+    /// After session verification, reload the user's HealthKit
+    /// history so app.workouts + app.sweatPoints aren't empty on
+    /// a relaunch that skipped onboarding. Silent on HealthKit
+    /// failure — the seeded fixtures already cover the social
+    /// surface; the workouts list just stays empty until the user
+    /// records a new session.
+    private func rehydrateWorkoutsOnLaunch() async {
+        guard currentUser != nil else { return }
+        await backfillWorkouts { _ in }
     }
 
     /// Hits /v1/auth/whoami once at launch. If the server says the

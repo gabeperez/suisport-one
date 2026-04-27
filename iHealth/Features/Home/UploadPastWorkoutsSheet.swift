@@ -127,7 +127,7 @@ struct UploadPastWorkoutsSheet: View {
                     UIApplication.shared.open(url)
                 }
                 return
-            }
+            }   
             Haptics.tap()
             if isSelected { selected.remove(w.id) }
             else if canSelect { selected.insert(w.id) }
@@ -264,10 +264,28 @@ struct UploadPastWorkoutsSheet: View {
             do {
                 let resp = try await app.mintWorkout(w)
                 let digest = resp.txDigest.hasPrefix("pending_") ? nil : resp.txDigest
+                // Surface the actual pipeline failure reason when the
+                // chain step didn't land. Way more useful than a
+                // vague "pending" — e.g. "sui_failed: TypeMismatch"
+                // points us at the real bug.
+                let pendingReason: String = {
+                    let pipeline = resp.attestation?.pipeline ?? "unknown"
+                    if pipeline.hasPrefix("sui_failed:") {
+                        let reason = pipeline.replacingOccurrences(of: "sui_failed:", with: "")
+                        return "Saved — chain step: \(reason.prefix(80))"
+                    }
+                    switch pipeline {
+                    case "executed":             return "Verified."
+                    case "stubbed":              return "Saved — chain disabled in this build"
+                    case "sui_not_configured":   return "Saved — server not connected to Sui"
+                    case "walrus_upload_failed": return "Saved — proof storage failed"
+                    default:                     return "Saved — \(pipeline)"
+                    }
+                }()
                 batchResults.append(MintBatchResult(
                     title: "\(w.type.title) · \(w.points) Sweat",
                     txDigest: digest,
-                    error: digest == nil ? "Saved — verification pending" : nil
+                    error: digest == nil ? pendingReason : nil
                 ))
             } catch {
                 batchResults.append(MintBatchResult(

@@ -763,6 +763,17 @@ nonisolated struct SubmitWorkoutResponse: Decodable {
     /// Walrus blob id of the canonical workout JSON. Nil when the
     /// pipeline ran in stub mode or Walrus upload failed.
     let walrusBlobId: String?
+    /// Server-side attestation pipeline result. `pipeline` is one of
+    /// "executed", "stubbed", "sui_not_configured", "walrus_upload_failed",
+    /// or "sui_failed:<reason>". Surfaced in the upload-results UI so
+    /// users (and us) see why a chain step failed instead of a vague
+    /// "verification pending."
+    let attestation: AttestationStatus?
+}
+
+nonisolated struct AttestationStatus: Decodable {
+    let status: String
+    let pipeline: String
 }
 
 // MARK: - Rewards DTOs

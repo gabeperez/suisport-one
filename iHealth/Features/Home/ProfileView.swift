@@ -430,9 +430,9 @@ struct ProfileView: View {
     }
 
     private func showcaseSlot(index: Int) -> some View {
-        let ids = social.me?.showcasedTrophyIDs ?? []
-        let trophy: Trophy? = ids.indices.contains(index)
-            ? social.trophies.first(where: { $0.id == ids[index] })
+        let keys = social.me?.showcasedTrophyIDs ?? []
+        let trophy: Trophy? = keys.indices.contains(index)
+            ? social.trophies.first(where: { $0.stableKey == keys[index] })
             : nil
         return Button {
             if let t = trophy { selectedTrophy = t }

@@ -240,6 +240,7 @@ struct RewardsView: View {
             // Mirror server-side debit on the local Sweat counter so
             // the balance ticks down without a refresh round-trip.
             app.sweatPoints.total = max(0, app.sweatPoints.total - resp.costPoints)
+            app.recordRedemption(resp.costPoints)
             sampleRedemption = resp
             Haptics.success()
         } catch let api as APIError {
@@ -417,6 +418,7 @@ struct RewardsView: View {
             let resp = try await APIClient.shared.redeemReward(catalogId: item.id)
             // Optimistically decrement + refresh from server in background.
             app.sweatPoints.total = max(0, app.sweatPoints.total - resp.costPoints)
+            app.recordRedemption(resp.costPoints)
             revealedCode = RevealedCode(title: item.title, code: resp.code)
             await refresh()
         } catch {

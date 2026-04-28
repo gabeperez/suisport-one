@@ -24,7 +24,7 @@ struct EditProfileSheet: View {
     @State private var isUploading: Bool = false
     @State private var uploadError: String?
     @State private var isSaving: Bool = false
-    @State private var showcase: [UUID] = []
+    @State private var showcase: [String] = []
     @State private var showcasePicker = false
 
     /// Simple URL validity check matching the server's rule:
@@ -429,7 +429,7 @@ struct EditProfileSheet: View {
 
     private func slot(index: Int) -> some View {
         let trophy: Trophy? = showcase.indices.contains(index)
-            ? social.trophies.first(where: { $0.id == showcase[index] })
+            ? social.trophies.first(where: { $0.stableKey == showcase[index] })
             : nil
         return Group {
             if let t = trophy {
@@ -449,7 +449,7 @@ struct EditProfileSheet: View {
                             .foregroundStyle(.white)
                         Button {
                             Haptics.tap()
-                            showcase.removeAll { $0 == t.id }
+                            showcase.removeAll { $0 == t.stableKey }
                         } label: {
                             Image(systemName: "xmark.circle.fill")
                                 .font(.system(size: 16, weight: .bold))
@@ -508,7 +508,13 @@ struct EditProfileSheet: View {
     private func loadPhoto() async {
         guard let item = photoItem else { return }
         guard let raw = try? await item.loadTransferable(type: Data.self) else { return }
-        photoData = raw
+        // Store a compressed thumbnail in `photoData` (used for local
+        // preview + as the fallback render when /me's photoURL hasn't
+        // landed yet). The raw bytes can be 5+ MB of HEIC which would
+        // either get stripped by the persistence safety net or blow
+        // past UserDefaults' write cap. The full-resolution upload to
+        // R2 still uses 1024px JPEG via uploadPickedPhoto.
+        photoData = Self.jpegAtMaxEdge(raw, maxEdge: 256, quality: 0.7) ?? raw
         clearPhoto = false
         uploadedAvatarKey = nil
         await uploadPickedPhoto(raw)
@@ -583,7 +589,7 @@ struct EditProfileSheet: View {
 // MARK: - Showcase picker
 
 struct ShowcasePickerSheet: View {
-    @Binding var selected: [UUID]
+    @Binding var selected: [String]
     @Environment(SocialDataService.self) private var social
     @Environment(\.dismiss) private var dismiss
 
@@ -599,12 +605,12 @@ struct ShowcasePickerSheet: View {
                     LazyVGrid(columns: cols, spacing: 10) {
                         ForEach(social.trophies.filter { $0.isUnlocked }) { t in
                             Button {
-                                toggle(t.id)
+                                toggle(t.stableKey)
                             } label: {
                                 TrophyPickerCard(
                                     trophy: t,
-                                    isSelected: selected.contains(t.id),
-                                    index: selected.firstIndex(of: t.id)
+                                    isSelected: selected.contains(t.stableKey),
+                                    index: selected.firstIndex(of: t.stableKey)
                                 )
                             }
                             .buttonStyle(.plain)
@@ -632,12 +638,12 @@ struct ShowcasePickerSheet: View {
         }
     }
 
-    private func toggle(_ id: UUID) {
+    private func toggle(_ key: String) {
         Haptics.select()
-        if let i = selected.firstIndex(of: id) {
+        if let i = selected.firstIndex(of: key) {
             selected.remove(at: i)
         } else if selected.count < 3 {
-            selected.append(id)
+            selected.append(key)
         } else {
             Haptics.warn()
         }

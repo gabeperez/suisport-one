@@ -122,40 +122,52 @@ struct MintingCelebrationView: View {
 
     // MARK: - Reward block
 
-    /// Pre-allocated width so the "Sweat" label doesn't shift as
-    /// digits roll over. Sized to the target's digit count + a hair
-    /// of slack so the number text always fits cleanly without the
-    /// numericText transition clipping its mask against the edge.
-    private var rewardDigitsWidth: CGFloat {
-        let target = max(workout.points, 1)
-        let digits = String(target).count
-        // ~22pt per digit at the 44pt rounded-bold font + 24pt for the leading "+".
-        return CGFloat(digits) * 22 + 24
+    /// Number of digit slots reserved in the ticker. Set to the
+    /// target's digit count so we leading-pad smaller values with
+    /// figure-spaces — the slot width then never changes while the
+    /// counter rolls 0 → target. Without this the HStack reflows on
+    /// every 9→10 / 99→100 boundary and "Sweat" jitters left-right.
+    private var rewardDigitWidth: Int {
+        max(1, String(max(workout.points, 1)).count)
+    }
+
+    /// Right-aligned, figure-space-padded display of the running
+    /// counter. Uses U+2007 (FIGURE SPACE) which is the same width
+    /// as a digit in monospaced fonts, so leading pads are
+    /// invisible-but-spacing while the rightmost digits flip.
+    private var paddedDigits: String {
+        let str = String(Int(displayedReward))
+        let pad = max(0, rewardDigitWidth - str.count)
+        return String(repeating: "\u{2007}", count: pad) + str
     }
 
     private var rewardBlock: some View {
         VStack(spacing: 10) {
-            HStack(spacing: 10) {
+            HStack(spacing: 8) {
                 Image(systemName: "bolt.heart.fill")
                     .font(.system(size: 22, weight: .bold))
                     .foregroundStyle(.white)
-                // Digits live in their own fixed-width slot so the
-                // numericText flipboard transition has stable bounds
-                // — without this the text frame grows as digits add,
-                // which makes the number look like it's "covered and
-                // expanding" mid-roll.
-                Text("+\(Int(displayedReward))")
-                    .font(.system(size: 44, weight: .bold, design: .rounded))
+                // "+" is its own Text so it stays planted while only
+                // the digits flip — like the leading character on a
+                // mechanical split-flap board.
+                Text("+")
+                    .font(.system(size: 42, weight: .bold, design: .rounded))
+                    .foregroundStyle(.white)
+                Text(paddedDigits)
+                    .font(.system(size: 42, weight: .bold, design: .rounded))
                     .foregroundStyle(.white)
                     .contentTransition(.numericText(value: displayedReward))
                     .monospacedDigit()
-                    .frame(minWidth: rewardDigitsWidth, alignment: .trailing)
                 Text("Sweat")
-                    .font(.system(size: 22, weight: .semibold, design: .rounded))
+                    .font(.system(size: 20, weight: .semibold, design: .rounded))
                     .foregroundStyle(.white.opacity(0.85))
+                    .padding(.leading, 4)
             }
-            // Backdrop card keeps the number clearly visible no
-            // matter what the ring/seal animation is doing behind.
+            // fixedSize() locks the HStack's intrinsic width to the
+            // padded layout — the parent VStack centers it, so even
+            // when the digit slot grows by a digit, "Sweat" doesn't
+            // shift left/right. No collision at any value.
+            .fixedSize()
             .padding(.horizontal, 22)
             .padding(.vertical, 12)
             .background(

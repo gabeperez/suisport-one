@@ -69,10 +69,24 @@ final class SocialDataService {
         // profile has something to flex by default. Skip when the
         // cached `me` already has a user-picked showcase — otherwise
         // we'd stomp the user's selections every relaunch.
-        let autoShowcase = trophies.filter { $0.isUnlocked }.prefix(3).map(\.id)
-        if !autoShowcase.isEmpty, var me, me.showcasedTrophyIDs.isEmpty {
-            me.showcasedTrophyIDs = Array(autoShowcase)
-            self.me = me
+        // Defensive prune of stale showcase entries (e.g. UUID strings
+        // persisted before the [UUID] → [String stableKey] migration,
+        // or trophies that have since been removed from the catalog).
+        if var meCopy = me {
+            let validKeys = Set(trophies.map(\.stableKey))
+            let cleaned = meCopy.showcasedTrophyIDs.filter { validKeys.contains($0) }
+            if cleaned.count != meCopy.showcasedTrophyIDs.count {
+                meCopy.showcasedTrophyIDs = cleaned
+                self.me = meCopy
+            }
+        }
+        // Auto-showcase the first three unlocked trophies so a fresh
+        // profile has something to flex. Skips when the cached `me`
+        // already has a user-picked showcase.
+        let autoShowcase = trophies.filter { $0.isUnlocked }.prefix(3).map(\.stableKey)
+        if !autoShowcase.isEmpty, var meCopy = me, meCopy.showcasedTrophyIDs.isEmpty {
+            meCopy.showcasedTrophyIDs = Array(autoShowcase)
+            self.me = meCopy
         }
     }
 
@@ -489,7 +503,7 @@ final class SocialDataService {
         avatarTone: AvatarTone? = nil,
         bannerTone: AvatarTone? = nil,
         photoData: Data?? = nil,                     // double-optional: nil means "no change", .some(nil) means "clear"
-        showcasedTrophyIDs: [UUID]? = nil,
+        showcasedTrophyIDs: [String]? = nil,
         pronouns: String? = nil,
         websiteUrl: String? = nil,
         avatarR2Key: String? = nil
@@ -565,6 +579,13 @@ final class SocialDataService {
         if let tone = AvatarTone(rawValue: dto.bannerTone) { current.bannerTone = tone }
         self.me = current
         AppPersistence.saveMe(current)
+        // Reconcile the server-side Sweat ledger into local state. Only
+        // present after migration 0013 + worker deploy; absent values
+        // are no-ops via the optional decode.
+        AppState.shared?.reconcileSweatLedger(
+            credited: dto.sweatCredited,
+            redeemed: dto.sweatRedeemed
+        )
     }
 
     func retireShoe(_ id: UUID) {

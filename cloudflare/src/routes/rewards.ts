@@ -143,6 +143,16 @@ rewards.post("/rewards/redeem", async (c) => {
             `INSERT INTO redemptions (id, athlete_id, catalog_id, cost_points, code_revealed)
              VALUES (?, ?, ?, ?, ?)`
         ).bind(redemptionId, athleteId, catalogId, item.cost_points, popped.code).run();
+        // Bump the lifetime-redeemed counter on the athlete row.
+        // Migration 0013 introduces `sweat_redeemed`; wrap so a
+        // not-yet-deployed environment fails soft.
+        try {
+            await c.env.DB.prepare(
+                `UPDATE athletes
+                 SET sweat_redeemed = sweat_redeemed + ?
+                 WHERE id = ?`
+            ).bind(item.cost_points, athleteId).run();
+        } catch { /* migration 0013 not applied — silent no-op */ }
     } catch (err) {
         // If the redemption log INSERT fails we still hand the code
         // back to the user (we already debited their points + the
@@ -213,6 +223,17 @@ rewards.post("/rewards/redeem-sample", async (c) => {
             message: err instanceof Error ? err.message : "unknown",
         }, 502);
     }
+
+    // Mirror the catalog redemption: bump the lifetime-redeemed
+    // counter so the iOS breakdown sheet stays accurate. Wrapped so
+    // a not-yet-migrated environment doesn't fail the redemption.
+    try {
+        await c.env.DB.prepare(
+            `UPDATE athletes
+             SET sweat_redeemed = sweat_redeemed + ?
+             WHERE id = ?`
+        ).bind(SAMPLE_REDEEM_COST, athleteId).run();
+    } catch { /* migration 0013 not applied — silent no-op */ }
 
     const explorerBase = c.env.SUI_NETWORK === "mainnet"
         ? "https://suiscan.xyz/mainnet"

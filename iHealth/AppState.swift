@@ -35,7 +35,14 @@ final class AppState {
         didSet { AppPersistence.saveShowDemoData(showDemoData) }
     }
 
+    /// Single-instance bridge for non-View / non-AppState callers that
+    /// need to reach back into AppState (e.g. SocialDataService
+    /// reconciling the server-side Sweat ledger after a /me refresh).
+    /// The app only ever has one instance — assigned on init.
+    static weak var shared: AppState?
+
     init() {
+        Self.shared = self
         // Rehydrate from disk. We do this in the property initializer's
         // body via a 1:1 mirror — the didSets above also write back to
         // disk, but they're benign overwrites of the same value.
@@ -121,6 +128,47 @@ final class AppState {
     /// them locally so the upload sheet hides them from the
     /// selectable list and shows an "Already logged" pill instead.
     var alreadyLoggedWorkoutIDs: Set<UUID> = []
+
+    /// Local ledger of Sweat credited (mints, including bonuses) and
+    /// redeemed (sample tickets, drops). Persisted across launches —
+    /// the only durable record of "what the chain actually paid out
+    /// vs what was spent." See SweatLedger for math + intent.
+    var sweatLedger: SweatLedger = AppPersistence.loadSweatLedger() ?? .zero {
+        didSet { AppPersistence.saveSweatLedger(sweatLedger) }
+    }
+
+    /// Add a successful mint's `pointsMinted` (server-final, includes
+    /// bonuses) to the credited side of the ledger.
+    func recordMintReward(_ pointsMinted: Int) {
+        guard pointsMinted > 0 else { return }
+        sweatLedger.credited += pointsMinted
+    }
+
+    /// Add a successful redemption's `costPoints` to the redeemed
+    /// side of the ledger.
+    func recordRedemption(_ costPoints: Int) {
+        guard costPoints > 0 else { return }
+        sweatLedger.redeemed += costPoints
+    }
+
+    /// Reconcile the local ledger against server-canonical values
+    /// from /me. Only adopts the larger of {local, server} for each
+    /// field — protects against a stale server read stomping a
+    /// just-recorded local mint, while still letting the server
+    /// catch us up after a fresh install or a different device.
+    func reconcileSweatLedger(credited: Int?, redeemed: Int?) {
+        var current = sweatLedger
+        var changed = false
+        if let c = credited, c > current.credited {
+            current.credited = c
+            changed = true
+        }
+        if let r = redeemed, r > current.redeemed {
+            current.redeemed = r
+            changed = true
+        }
+        if changed { sweatLedger = current }
+    }
 
     /// Computed: has the user granted Health access at least to writing?
     /// For read-auth HealthKit doesn't expose status — we infer by querying.
@@ -286,6 +334,8 @@ final class AppState {
         AppPersistence.clearFeed()
         AppPersistence.clearAthletes()
         AppPersistence.clearClaimedTrophyKeys()
+        AppPersistence.clearSweatLedger()
+        sweatLedger = .zero
         SocialDataService.shared.clearMe()
     }
 

@@ -357,6 +357,7 @@ struct WorkoutDetailView: View {
                     digest: digest,
                     walrusBlobId: resp.walrusBlobId
                 )
+                app.recordMintReward(resp.pointsMinted)
             } else {
                 let pipeline = resp.attestation?.pipeline ?? "unknown"
                 claimError = "Saved, but the on-chain step is still pending (\(pipeline)). Try again in a moment."

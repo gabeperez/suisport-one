@@ -18,6 +18,8 @@ struct FeedView: View {
     @State private var sort: FeedSortSheet.FeedSort = .recent
     @State private var filter: FeedFilter = .following
     @State private var reportingItem: FeedItem?
+    @State private var sweatBalance: SweatBalanceResponse?
+    @State private var showSweatBreakdown = false
 
     enum FeedFilter: String, CaseIterable { case following, discover
         var title: String { self == .following ? "Following" : "Discover" }
@@ -53,8 +55,32 @@ struct FeedView: View {
                 .frame(maxWidth: 640)
                 .frame(maxWidth: .infinity)
             }
-            .refreshable { await social.refresh() }
+            .refreshable {
+                await social.refresh()
+                await loadSweatBalance()
+            }
+            .task { await loadSweatBalance() }
             .background(Theme.Color.bg.ignoresSafeArea())
+            .sheet(isPresented: $showSweatBreakdown) {
+                // Fall back to the workout-derived sum when the
+                // ledger hasn't seen any mints yet (first launch
+                // with this build, or pre-existing on-chain state).
+                // Ensures "Lifetime earned" reads as a positive
+                // number even before the ledger has been populated.
+                let credited = max(app.sweatLedger.credited, lifetimeOnChain)
+                SweatBreakdownSheet(
+                    lifetimeCredited: credited,
+                    inWalletDisplay: sweatBalance?.display,
+                    inWalletEstimate: parsedInWallet,
+                    lifetimeOnChain: lifetimeOnChain,
+                    totalRedeemed: app.sweatLedger.redeemed,
+                    onClose: { showSweatBreakdown = false },
+                    onRedeem: nil
+                )
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
+                .presentationCornerRadius(Theme.Radius.xl)
+            }
             .navigationDestination(item: $selectedItem) { item in
                 WorkoutDetailView(feedItemId: item.id)
             }
@@ -355,38 +381,96 @@ struct FeedView: View {
 
     // MARK: - Points card
 
-    private var pointsCard: some View {
-        VStack(alignment: .leading, spacing: Theme.Space.sm) {
-            HStack(spacing: 8) {
-                Image(systemName: "bolt.heart.fill")
-                    .font(.system(size: 14, weight: .semibold))
-                Text("Lifetime Sweat earned")
-                    .font(.system(size: 13, weight: .semibold, design: .rounded))
-            }
-            .foregroundStyle(Theme.Color.accentInk.opacity(0.75))
+    /// Sum of points across workouts that actually landed on chain —
+    /// the closest local proxy to "Sweat that was minted into the
+    /// wallet at some point." Differs from `app.sweatPoints.total`,
+    /// which includes unclaimed Apple Health workouts.
+    private var lifetimeOnChain: Int {
+        app.workouts
+            .filter { $0.suiTxDigest?.isEmpty == false }
+            .reduce(0) { $0 + $1.points }
+    }
 
-            Text("\(app.sweatPoints.total)")
-                .font(.numberXL)
-                .foregroundStyle(Theme.Color.accentInk)
-                .contentTransition(.numericText())
+    /// Best-effort numeric parse of the on-chain balance display
+    /// string ("1,057.20" → 1057). Used for the "redeemed = lifetime
+    /// minted − in wallet" derivation in the breakdown sheet.
+    private var parsedInWallet: Int {
+        guard let display = sweatBalance?.display else { return 0 }
+        let stripped = display.replacingOccurrences(of: ",", with: "")
+        return Int(Double(stripped) ?? 0)
+    }
 
-            HStack(spacing: Theme.Space.md) {
-                stat(label: "This week", value: "+\(app.sweatPoints.weekly)")
-                Divider().frame(height: 26).overlay(Theme.Color.accentInk.opacity(0.15))
-                stat(label: "Multiplier",
-                     value: String(format: "x%.2f", social.streak.multiplier))
+    private func loadSweatBalance() async {
+        guard let addr = app.currentUser?.suiAddress,
+              addr.hasPrefix("0x"), addr.count == 66
+        else { return }
+        sweatBalance = try? await APIClient.shared.fetchSweatBalance(address: addr)
+        // Bootstrap the ledger on the very first run with this build
+        // so pre-existing on-chain state surfaces in the breakdown
+        // sheet without needing a fresh mint to populate it. Idempotent
+        // — only fires while the ledger is still its initial zero state.
+        if app.sweatLedger == .zero {
+            let baseline = max(parsedInWallet, lifetimeOnChain)
+            if baseline > 0 {
+                app.sweatLedger = SweatLedger(credited: baseline, redeemed: 0)
             }
         }
-        .padding(Theme.Space.lg)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: Theme.Radius.xl, style: .continuous)
-                .fill(Theme.Gradient.accent)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: Theme.Radius.xl, style: .continuous)
-                .strokeBorder(.white.opacity(0.2), lineWidth: 1)
-        )
+    }
+
+    private var pointsCard: some View {
+        Button {
+            Haptics.tap()
+            showSweatBreakdown = true
+        } label: {
+            VStack(alignment: .leading, spacing: Theme.Space.sm) {
+                HStack(spacing: 8) {
+                    Image(systemName: "bolt.heart.fill")
+                        .font(.system(size: 14, weight: .semibold))
+                    Text("Lifetime Sweat earned")
+                        .font(.system(size: 13, weight: .semibold, design: .rounded))
+                    Spacer()
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundStyle(Theme.Color.accentInk.opacity(0.55))
+                }
+                .foregroundStyle(Theme.Color.accentInk.opacity(0.75))
+
+                Text("\(app.sweatPoints.total)")
+                    .font(.numberXL)
+                    .foregroundStyle(Theme.Color.accentInk)
+                    .contentTransition(.numericText())
+
+                HStack(spacing: Theme.Space.md) {
+                    stat(label: "Ready to redeem",
+                         value: sweatBalance?.display ?? "—")
+                    Divider().frame(height: 26).overlay(Theme.Color.accentInk.opacity(0.15))
+                    // Sourced from the local SweatLedger now, not
+                    // derived from chain balance. Bonus wins display
+                    // priority since it's the more interesting story
+                    // for a fresh-bonus user; redeemed shows once
+                    // they've spent.
+                    let bonus = max(0, app.sweatLedger.credited - lifetimeOnChain)
+                    if bonus > 0 {
+                        stat(label: "Bonus earned",
+                             value: "+\(bonus)")
+                    } else {
+                        stat(label: "Redeemed",
+                             value: "\(app.sweatLedger.redeemed)")
+                    }
+                }
+            }
+            .padding(Theme.Space.lg)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: Theme.Radius.xl, style: .continuous)
+                    .fill(Theme.Gradient.accent)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: Theme.Radius.xl, style: .continuous)
+                    .strokeBorder(.white.opacity(0.2), lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
     }
 
     private func stat(label: String, value: String) -> some View {

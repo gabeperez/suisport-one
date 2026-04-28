@@ -146,6 +146,19 @@ export async function retryPendingWorkoutsTick(env: Env): Promise<RetryTickResul
             ).bind(
                 onChain.txDigest, Number(finalReward), now, row.id
             ).run();
+            // Mirror the live-mint path: bump the lifetime-credited
+            // counter for this athlete. Silent no-op if migration 0013
+            // hasn't been applied (column missing).
+            try {
+                const creditedDisplay = Math.floor(Number(finalReward) / 1_000_000_000);
+                if (creditedDisplay > 0) {
+                    await env.DB.prepare(
+                        `UPDATE athletes
+                         SET sweat_credited = sweat_credited + ?
+                         WHERE id = ?`
+                    ).bind(creditedDisplay, row.athlete_id).run();
+                }
+            } catch { /* migration 0013 not applied — silent no-op */ }
             succeeded++;
         } catch (err) {
             const msg = err instanceof Error ? err.message : String(err);

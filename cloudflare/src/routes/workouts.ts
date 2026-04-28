@@ -199,6 +199,19 @@ workouts.post("/", async (c) => {
                  SET sui_tx_digest = ?, verified = 1, sweat_minted = ?
                  WHERE id = ?`
             ).bind(txDigest, sweatMinted, workoutId).run();
+            // Bump the lifetime-credited counter on the athlete row.
+            // Wrapped so the migration-not-applied case (column missing)
+            // can't bring down the mint flow.
+            try {
+                const creditedDisplay = Math.floor(Number(finalReward) / 1_000_000_000);
+                if (creditedDisplay > 0) {
+                    await c.env.DB.prepare(
+                        `UPDATE athletes
+                         SET sweat_credited = sweat_credited + ?
+                         WHERE id = ?`
+                    ).bind(creditedDisplay, athleteId).run();
+                }
+            } catch { /* migration 0013 not applied yet — silent no-op */ }
         } catch (err) {
             // On-chain step failed; keep the workout in D1 with verified=0.
             // Indexer will NOT retry — user can resubmit if needed.

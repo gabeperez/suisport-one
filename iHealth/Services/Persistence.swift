@@ -47,6 +47,7 @@ enum AppPersistence {
         nonisolated static let cachedFeed = "SuiSportONE.cachedFeed.v1"
         nonisolated static let cachedAthletes = "SuiSportONE.cachedAthletes.v1"
         nonisolated static let claimedTrophyKeys = "SuiSportONE.claimedTrophyKeys.v1"
+        nonisolated static let sweatLedger = "SuiSportONE.sweatLedger.v1"
         nonisolated static let hasCompletedOnboarding = "SuiSportONE.hasCompletedOnboarding"
         nonisolated static let showDemoData = "SuiSportONE.showDemoData"
     }
@@ -246,6 +247,36 @@ enum AppPersistence {
 
     @MainActor static func clearClaimedTrophyKeys() {
         UserDefaults.standard.removeObject(forKey: Key.claimedTrophyKeys)
+    }
+
+    // MARK: - Sweat ledger
+    //
+    // Local truth-source for the Sweat economy displayed on the home
+    // breakdown sheet. Two cumulative counters maintained by AppState:
+    //   credited — sum of `pointsMinted` returned from every server
+    //              mint, includes first-time / streak / multiplier
+    //              bonuses (server-side reward formula output).
+    //   redeemed — sum of `costPoints` returned from every successful
+    //              redemption call (sample tickets, future drops).
+    //
+    // Persisted so a relaunch keeps the totals. Cleared on signOut so
+    // user B doesn't inherit user A's ledger.
+
+    @MainActor static func saveSweatLedger(_ ledger: SweatLedger) {
+        if let data = try? encoder.encode(ledger) {
+            UserDefaults.standard.set(data, forKey: Key.sweatLedger)
+        }
+    }
+
+    @MainActor static func loadSweatLedger() -> SweatLedger? {
+        guard let data = UserDefaults.standard.data(forKey: Key.sweatLedger),
+              let ledger = try? decoder.decode(SweatLedger.self, from: data)
+        else { return nil }
+        return ledger
+    }
+
+    @MainActor static func clearSweatLedger() {
+        UserDefaults.standard.removeObject(forKey: Key.sweatLedger)
     }
 
     // MARK: - onboarding completion

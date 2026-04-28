@@ -374,11 +374,18 @@ nonisolated struct AthleteDTO: Decodable, Hashable {
     // decode cleanly — if the server doesn't ship them they stay nil.
     let pronouns: String?
     let websiteUrl: String?
+    /// Lifetime Sweat credited (display units) — server ledger from
+    /// migration 0013. Optional so a not-yet-deployed server still
+    /// decodes cleanly.
+    let sweatCredited: Int?
+    /// Lifetime Sweat redeemed across all redemption flows.
+    let sweatRedeemed: Int?
 
     private enum CodingKeys: String, CodingKey {
         case id, suiAddress, handle, displayName, avatarTone, bannerTone,
              verified, tier, totalWorkouts, followers, following, bio,
-             location, photoURL, suinsName, dob, isDemo, pronouns, websiteUrl
+             location, photoURL, suinsName, dob, isDemo, pronouns, websiteUrl,
+             sweatCredited, sweatRedeemed
     }
 
     init(from decoder: Decoder) throws {
@@ -402,6 +409,8 @@ nonisolated struct AthleteDTO: Decodable, Hashable {
         self.isDemo = try c.decode(Bool.self, forKey: .isDemo)
         self.pronouns = try c.decodeIfPresent(String.self, forKey: .pronouns)
         self.websiteUrl = try c.decodeIfPresent(String.self, forKey: .websiteUrl)
+        self.sweatCredited = try c.decodeIfPresent(Int.self, forKey: .sweatCredited)
+        self.sweatRedeemed = try c.decodeIfPresent(Int.self, forKey: .sweatRedeemed)
     }
 }
 nonisolated struct AthleteEnvelope: Decodable { let athlete: AthleteDTO }

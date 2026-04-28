@@ -15,6 +15,7 @@ import SwiftUI
 /// which were minted today.
 struct UploadPastWorkoutsSheet: View {
     @Environment(AppState.self) private var app
+    @Environment(SocialDataService.self) private var social
     @Environment(\.dismiss) private var dismiss
 
     /// IDs of workouts the user has selected for minting this batch.
@@ -29,6 +30,10 @@ struct UploadPastWorkoutsSheet: View {
     @State private var batchResults: [MintBatchResult] = []
     @State private var showResults = false
     @State private var errorMsg: String?
+    /// Single-workout claim drives the full-screen MintingCelebration
+    /// instead of the inline batch progress strip. nil when not in a
+    /// single-claim flow.
+    @State private var mintRequest: MintingCelebrationRequest?
 
     /// Cap on selection. Keeps gas spend bounded + the demo focused.
     private let maxSelection = 5
@@ -65,6 +70,17 @@ struct UploadPastWorkoutsSheet: View {
                     showResults = false
                     selected.removeAll()
                 }
+            }
+            .fullScreenCover(item: $mintRequest) { req in
+                MintingCelebrationView(
+                    workout: req.workout,
+                    athlete: social.me,
+                    perform: { try await app.mintWorkout(req.workout) },
+                    onComplete: { result in
+                        req.onResult(result)
+                        mintRequest = nil
+                    }
+                )
             }
         }
     }
@@ -268,9 +284,9 @@ struct UploadPastWorkoutsSheet: View {
                 tint: selected.isEmpty ? Theme.Color.bgElevated : Theme.Color.ink,
                 fg: selected.isEmpty ? Theme.Color.inkFaint : Theme.Color.inkInverse
             ) {
-                Task { await mintBatch() }
+                startUpload()
             }
-            .disabled(selected.isEmpty || mintingIndex != nil)
+            .disabled(selected.isEmpty || mintingIndex != nil || mintRequest != nil)
         }
         .padding(Theme.Space.md)
         .background(.ultraThinMaterial)
@@ -286,6 +302,73 @@ struct UploadPastWorkoutsSheet: View {
             .sorted { $0.startDate > $1.startDate }
     }
 
+    /// Branch on selection size: a single workout drives the
+    /// full-screen MintingCelebration (the "headline moment" of the
+    /// demo). Multi-select keeps the batch progress + results sheet
+    /// since playing 5 celebrations back-to-back is too long to
+    /// stand through.
+    private func startUpload() {
+        let batch = selectedOrdered()
+        guard !batch.isEmpty, mintingIndex == nil, mintRequest == nil else { return }
+        if batch.count == 1, let workout = batch.first {
+            mintRequest = MintingCelebrationRequest(
+                workout: workout,
+                onResult: { result in
+                    handleSingleResult(workout: workout, result: result)
+                }
+            )
+        } else {
+            Task { await mintBatch() }
+        }
+    }
+
+    @MainActor
+    private func handleSingleResult(
+        workout: Workout,
+        result: Result<SubmitWorkoutResponse, Error>
+    ) {
+        switch result {
+        case .success(let resp):
+            let digest = resp.txDigest.hasPrefix("pending_") ? nil : resp.txDigest
+            if digest != nil {
+                social.markFeedItemMinted(
+                    workoutId: workout.id,
+                    digest: resp.txDigest,
+                    walrusBlobId: resp.walrusBlobId
+                )
+                app.recordMintReward(resp.pointsMinted)
+            }
+            // Clear selection — the row will re-render as "Verified"
+            // when the workouts list refreshes.
+            selected.remove(workout.id)
+            // Close the upload sheet so the user lands back on the
+            // feed / profile and sees the verified strip on the row.
+            dismiss()
+        case .failure(let err):
+            if let api = err as? APIError,
+               case .server(422, let body) = api,
+               let reason = parseRejectReason(body),
+               reason == "duplicate_submission" || reason == "duplicate" {
+                app.alreadyLoggedWorkoutIDs.insert(workout.id)
+                selected.remove(workout.id)
+                errorMsg = "This workout was already claimed."
+            } else {
+                errorMsg = describeError(err)
+            }
+            Haptics.warn()
+        }
+    }
+
+    private func describeError(_ err: Error) -> String {
+        guard let api = err as? APIError else { return err.localizedDescription }
+        switch api {
+        case .notImplemented: return "Upload isn't available yet."
+        case .transport(let e): return e.localizedDescription
+        case .server(let code, let msg):
+            return msg.isEmpty ? "Server error (\(code))" : msg
+        }
+    }
+
     private func mintBatch() async {
         let batch = selectedOrdered()
         guard !batch.isEmpty else { return }
@@ -297,6 +380,7 @@ struct UploadPastWorkoutsSheet: View {
             do {
                 let resp = try await app.mintWorkout(w)
                 let digest = resp.txDigest.hasPrefix("pending_") ? nil : resp.txDigest
+                if digest != nil { app.recordMintReward(resp.pointsMinted) }
                 // Surface the actual pipeline failure reason when the
                 // chain step didn't land. Way more useful than a
                 // vague "pending" — e.g. "sui_failed: TypeMismatch"

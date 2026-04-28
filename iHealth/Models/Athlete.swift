@@ -20,7 +20,11 @@ struct Athlete: Identifiable, Hashable, Codable {
     // Customization — drive the editable profile hero.
     var bannerTone: AvatarTone = .sunset
     var photoData: Data? = nil              // user-picked avatar; takes precedence over gradient
-    var showcasedTrophyIDs: [UUID] = []     // up to 3 pinned trophies
+    /// Up to 3 pinned trophies. Stored as `Trophy.stableKey` strings
+    /// (e.g. "5k-finisher") rather than UUIDs, because Trophy.id is
+    /// regenerated fresh on every seed — UUIDs would silently fail
+    /// to resolve across launches.
+    var showcasedTrophyIDs: [String] = []
     var location: String? = nil             // optional "Brooklyn, NY"
     var suinsName: String? = nil            // "alice.sui" if the address owns one
     var pronouns: String? = nil             // "she/her", "they/them", etc.

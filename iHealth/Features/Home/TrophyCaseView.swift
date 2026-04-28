@@ -332,6 +332,7 @@ struct TrophyDetailSheet: View {
                     digest: resp.txDigest,
                     walrusBlobId: resp.walrusBlobId
                 )
+                app.recordMintReward(resp.pointsMinted)
             }
         } catch let api as APIError {
             // Server says it's already in D1 even though we don't

@@ -105,29 +105,55 @@ struct EditProfileSheet: View {
 
     private var avatarBlock: some View {
         VStack(spacing: 14) {
-            ZStack {
-                Circle()
+            // Mirror the live profile layout: a banner strip on top,
+            // avatar overlapping the bottom edge. Each picker now has
+            // an unmistakable visible target — earlier the bannerTone
+            // showed only as a blurred glow behind the avatar, which
+            // users read as the avatar's own gradient.
+            ZStack(alignment: .bottom) {
+                RoundedRectangle(cornerRadius: Theme.Radius.lg, style: .continuous)
                     .fill(bannerTone.gradient)
-                    .frame(width: 160, height: 160)
-                    .opacity(0.35)
-                    .blur(radius: 30)
-                previewAvatar
-                    .frame(width: 110, height: 110)
-                    .clipShape(Circle())
-                    .overlay(Circle().strokeBorder(Color.white.opacity(0.8), lineWidth: 3))
-                    .shadow(color: .black.opacity(0.2), radius: 16, y: 8)
-                // While the server upload is in flight, dim + spinner
-                // so the user understands Save will be blocked until
-                // the upload settles.
-                if isUploading {
+                    .frame(height: 96)
+                    .overlay(
+                        LinearGradient(
+                            colors: [.black.opacity(0.0), .black.opacity(0.22)],
+                            startPoint: .top, endPoint: .bottom
+                        )
+                        .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.lg,
+                                                    style: .continuous))
+                    )
+                ZStack {
+                    // Glow halo that uses avatarTone — same color as
+                    // the ring so it unmistakably belongs to the
+                    // avatar (not the banner). Brings back the
+                    // gradient-glow vibe people loved.
                     Circle()
-                        .fill(.black.opacity(0.4))
-                        .frame(width: 110, height: 110)
-                    ProgressView()
-                        .progressViewStyle(.circular)
-                        .tint(.white)
+                        .fill(avatarTone.gradient)
+                        .frame(width: 144, height: 144)
+                        .opacity(0.55)
+                        .blur(radius: 22)
+                    previewAvatar
+                        .frame(width: 96, height: 96)
+                        .clipShape(Circle())
+                    // Avatar tone also renders as the ring so the
+                    // picker has clear feedback even when a photo
+                    // overrides the fill inside the circle.
+                    Circle()
+                        .strokeBorder(avatarTone.gradient, lineWidth: 4)
+                        .frame(width: 96, height: 96)
+                    if isUploading {
+                        Circle()
+                            .fill(.black.opacity(0.4))
+                            .frame(width: 96, height: 96)
+                        ProgressView()
+                            .progressViewStyle(.circular)
+                            .tint(.white)
+                    }
                 }
+                .shadow(color: .black.opacity(0.22), radius: 12, y: 6)
+                .offset(y: 36)
             }
+            .padding(.bottom, 40)
 
             HStack(spacing: 8) {
                 let hasPhoto = photoData != nil || (!clearPhoto && social.me?.photoData != nil)
@@ -571,7 +597,7 @@ struct ShowcasePickerSheet: View {
                     let cols = [GridItem(.flexible(), spacing: 10),
                                 GridItem(.flexible(), spacing: 10)]
                     LazyVGrid(columns: cols, spacing: 10) {
-                        ForEach(social.trophies.filter { !$0.isLocked }) { t in
+                        ForEach(social.trophies.filter { $0.isUnlocked }) { t in
                             Button {
                                 toggle(t.id)
                             } label: {

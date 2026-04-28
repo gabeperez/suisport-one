@@ -5,6 +5,7 @@ struct WorkoutDetailView: View {
     let feedItemId: UUID
 
     @Environment(SocialDataService.self) private var social
+    @Environment(AppState.self) private var app
     @Environment(\.dismiss) private var dismiss
     @State private var showShare = false
     @State private var commentText = ""
@@ -13,6 +14,8 @@ struct WorkoutDetailView: View {
     @State private var showDeleteConfirm = false
     @State private var isDeleting = false
     @State private var deleteError: String?
+    @State private var claimError: String?
+    @State private var mintRequest: MintingCelebrationRequest?
 
     var body: some View {
         ScrollView {
@@ -82,6 +85,17 @@ struct WorkoutDetailView: View {
         }
         .navigationDestination(item: $selectedAthlete) { a in
             AthleteProfileView(athleteId: a.id)
+        }
+        .fullScreenCover(item: $mintRequest) { req in
+            MintingCelebrationView(
+                workout: req.workout,
+                athlete: social.me,
+                perform: { try await app.mintWorkout(req.workout) },
+                onComplete: { result in
+                    req.onResult(result)
+                    mintRequest = nil
+                }
+            )
         }
     }
 
@@ -224,9 +238,20 @@ struct WorkoutDetailView: View {
         return Self.packageExplorerURL
     }
 
+    @ViewBuilder
     private func verifiedStrip(for item: FeedItem) -> some View {
         let isOnChain = (item.workout.suiTxDigest?.isEmpty == false)
-        return Link(destination: verifiedExplorerURL(for: item)) {
+        if isOnChain {
+            onChainStrip(for: item)
+        } else if isOwnWorkout {
+            claimSweatButton(for: item)
+        }
+        // Off-chain workouts that aren't yours render nothing — no
+        // misleading "Verified" claim when there's no on-chain proof.
+    }
+
+    private func onChainStrip(for item: FeedItem) -> some View {
+        Link(destination: verifiedExplorerURL(for: item)) {
             HStack(spacing: 10) {
                 Image(systemName: "checkmark.seal.fill")
                     .font(.system(size: 16, weight: .bold))
@@ -235,9 +260,7 @@ struct WorkoutDetailView: View {
                     Text("Verified workout")
                         .font(.system(size: 14, weight: .semibold, design: .rounded))
                         .foregroundStyle(Theme.Color.ink)
-                    Text(isOnChain
-                         ? "Tap to see the proof"
-                         : "Sample session · tap to see how proofs work")
+                    Text("Tap to see the proof")
                         .font(.system(size: 12))
                         .foregroundStyle(Theme.Color.inkSoft)
                 }
@@ -257,9 +280,140 @@ struct WorkoutDetailView: View {
             )
         }
         .buttonStyle(.plain)
-        .accessibilityHint(isOnChain
-                           ? "Opens this workout's transaction on Suiscan"
-                           : "Opens the SuiSport ONE Move package on Suiscan")
+        .accessibilityHint("Opens this workout's transaction on Suiscan")
+    }
+
+    /// Trigger-based on-chain mint for the user's own off-chain
+    /// workouts (HealthKit auto-syncs land here). Tapping submits to
+    /// the worker, awards Sweat, and flips the item to the on-chain
+    /// strip on success.
+    private func claimSweatButton(for item: FeedItem) -> some View {
+        Button {
+            startClaim(for: item)
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: "bolt.fill")
+                    .font(.system(size: 16, weight: .bold))
+                    .foregroundStyle(Theme.Color.accentInk)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Claim Sweat")
+                        .font(.system(size: 15, weight: .bold, design: .rounded))
+                        .foregroundStyle(Theme.Color.accentInk)
+                    Text("Earn \(item.workout.points) Sweat on Sui")
+                        .font(.system(size: 12, weight: .semibold, design: .rounded))
+                        .foregroundStyle(Theme.Color.accentInk.opacity(0.8))
+                }
+                Spacer()
+                Image(systemName: "arrow.right")
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundStyle(Theme.Color.accentInk)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
+            .frame(maxWidth: .infinity)
+            .background(
+                RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous)
+                    .fill(Theme.Color.accent)
+            )
+        }
+        .buttonStyle(.plain)
+        .disabled(mintRequest != nil)
+        .alert("Couldn't claim Sweat",
+               isPresented: Binding(
+                   get: { claimError != nil },
+                   set: { if !$0 { claimError = nil } }
+               )) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(claimError ?? "")
+        }
+    }
+
+    /// Kick the celebration view into life. The mint network call
+    /// runs inside MintingCelebrationView (so the animation can drive
+    /// off it); we just provide the workout + the success/error
+    /// handler.
+    private func startClaim(for item: FeedItem) {
+        guard mintRequest == nil else { return }
+        mintRequest = MintingCelebrationRequest(
+            workout: item.workout,
+            onResult: { result in
+                handleClaimResult(item: item, result: result)
+            }
+        )
+    }
+
+    @MainActor
+    private func handleClaimResult(
+        item: FeedItem,
+        result: Result<SubmitWorkoutResponse, Error>
+    ) {
+        switch result {
+        case .success(let resp):
+            let digest = resp.txDigest
+            if !digest.hasPrefix("pending_") {
+                social.markFeedItemMinted(
+                    workoutId: item.workout.id,
+                    digest: digest,
+                    walrusBlobId: resp.walrusBlobId
+                )
+            } else {
+                let pipeline = resp.attestation?.pipeline ?? "unknown"
+                claimError = "Saved, but the on-chain step is still pending (\(pipeline)). Try again in a moment."
+                Haptics.warn()
+            }
+        case .failure(let err):
+            if let api = err as? APIError,
+               case .server(422, let body) = api,
+               let reason = parseClaimRejectReason(body) {
+                if reason == "duplicate_submission" || reason == "duplicate" {
+                    app.alreadyLoggedWorkoutIDs.insert(item.workout.id)
+                    claimError = "This workout was already claimed."
+                } else {
+                    claimError = "Rejected by server: \(reason)"
+                }
+            } else if let api = err as? APIError {
+                claimError = describeClaimError(api)
+            } else {
+                claimError = err.localizedDescription
+            }
+            Haptics.warn()
+        }
+    }
+
+    private func describeClaimError(_ err: APIError) -> String {
+        switch err {
+        case .notImplemented: return "Claiming isn't available yet."
+        case .transport(let e): return e.localizedDescription
+        case .server(let code, let msg):
+            // Server returns Zod-validation JSON for 400-class
+            // rejects. Show a friendly summary instead of dumping
+            // the raw issue array on the user.
+            if let friendly = friendlyValidationMessage(body: msg) {
+                return friendly
+            }
+            return msg.isEmpty ? "Server error (\(code))" : msg
+        }
+    }
+
+    /// Best-effort `reason` extraction from a 422 body like
+    /// `{"error":"rejected","reason":"duplicate_submission"}`.
+    private func parseClaimRejectReason(_ body: String) -> String? {
+        guard let data = body.data(using: .utf8),
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else { return nil }
+        return obj["reason"] as? String
+    }
+
+    /// Translate a Zod `validation_error` body into a single-line
+    /// human message. Returns nil for anything else so the caller
+    /// can fall through to its default phrasing.
+    private func friendlyValidationMessage(body: String) -> String? {
+        guard let data = body.data(using: .utf8),
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              (obj["error"] as? String) == "validation_error"
+        else { return nil }
+        return "This workout's data is out of range and can't be saved on Sui. The HealthKit reading may be a corrupted aggregate — try a different workout."
     }
 
     // MARK: - Caption

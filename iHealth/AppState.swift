@@ -58,9 +58,18 @@ final class AppState {
 
         // Background: verify session validity + reload HealthKit
         // history so workouts + sweatPoints repopulate after relaunch.
+        // Both kick off after a tiny yield so SwiftUI gets the first
+        // paint out before we hit the network and the (heavy) HealthKit
+        // historical query — otherwise the user sees a frozen UI for
+        // the launch wall-time of those calls.
         if APIClient.shared.sessionToken != nil, savedUser != nil {
             Task { [weak self] in
+                try? await Task.sleep(nanoseconds: 150_000_000)
                 await self?.verifySessionOnLaunch()
+                // HealthKit historical fetch is the heaviest piece;
+                // give the user a beat with a usable UI before we
+                // start it so taps register immediately.
+                try? await Task.sleep(nanoseconds: 350_000_000)
                 await self?.rehydrateWorkoutsOnLaunch()
             }
         }
@@ -268,6 +277,16 @@ final class AppState {
         healthAuthorized = false
         pendingDateOfBirth = nil
         UserDefaults.standard.removeObject(forKey: "lastAuthProvider")
+        // Clear the cached social profile so the next user to sign
+        // in on this device doesn't inherit the previous person's
+        // handle, photo, and showcase from disk. Same goes for the
+        // cached feed + athletes — they were derived from the prior
+        // session's auth.
+        AppPersistence.saveMe(nil)
+        AppPersistence.clearFeed()
+        AppPersistence.clearAthletes()
+        AppPersistence.clearClaimedTrophyKeys()
+        SocialDataService.shared.clearMe()
     }
 
     func setGoal(_ goal: UserGoal?, displayName: String) {
@@ -338,6 +357,17 @@ final class AppState {
                 streakDays: Self.estimateStreak(from: workouts)
             )
             SocialDataService.shared.seed(for: currentUser, workouts: workouts)
+            // seed() is a no-op past first launch; explicitly refresh
+            // the workout-derived shelves so trophies/streak/PRs
+            // reflect the freshly-loaded HealthKit history. Without
+            // this, claimable trophies would stay locked after
+            // rehydrate even though the user has the qualifying runs.
+            SocialDataService.shared.refreshFromWorkouts(workouts)
+            // Surface any workout the user finished while the app
+            // was backgrounded (e.g. a watch session that synced
+            // mid-presentation) at the top of the feed so the
+            // celebration claim flow is one tap away.
+            SocialDataService.shared.appendNewUserWorkouts(workouts)
         } catch {
             self.workouts = []
             SocialDataService.shared.seed(for: currentUser, workouts: [])

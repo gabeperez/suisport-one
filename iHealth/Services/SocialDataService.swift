@@ -33,9 +33,30 @@ final class SocialDataService {
         guard !seeded else { return }
         seeded = true
 
-        athletes = Self.seedAthletes()
-        me = Self.buildSelf(from: user, workoutCount: workouts.count)
-        feed = Self.seedFeed(me: me, others: athletes, userWorkouts: workouts)
+        // Hydrate athletes from disk first so feed-card avatar taps
+        // resolve before refresh() lands. Falls back to fixtures only
+        // if there's nothing cached (first launch / signed-out user).
+        let cachedAthletes = AppPersistence.loadAthletes()
+        athletes = cachedAthletes.isEmpty ? Self.seedAthletes() : cachedAthletes
+
+        // Prefer the persisted social profile over a rebuild-from-User
+        // stub so the user's customized handle, photo, tones, and
+        // showcase show up instantly on relaunch — even if /me is
+        // slow or unreachable.
+        if let cached = AppPersistence.loadMe() {
+            me = cached
+        } else {
+            me = Self.buildSelf(from: user, workoutCount: workouts.count)
+        }
+
+        // Hydrate the feed from disk too so the user lands on real
+        // content instead of a blank list while refresh() runs.
+        let cachedFeed = AppPersistence.loadFeed()
+        if !cachedFeed.isEmpty {
+            feed = cachedFeed
+        } else {
+            feed = Self.seedFeed(me: me, others: athletes, userWorkouts: workouts)
+        }
         clubs = Self.seedClubs()
         challenges = Self.seedChallenges()
         segments = Self.seedSegments(others: athletes)
@@ -44,10 +65,12 @@ final class SocialDataService {
         shoes = Self.seedShoes()
         personalRecords = PRCalculator.all(from: workouts)
 
-        // Auto-showcase the first three unlocked trophies so the profile
-        // has something to flex by default.
-        let autoShowcase = trophies.filter { !$0.isLocked }.prefix(3).map(\.id)
-        if !autoShowcase.isEmpty, var me {
+        // Auto-showcase the first three unlocked trophies so a fresh
+        // profile has something to flex by default. Skip when the
+        // cached `me` already has a user-picked showcase — otherwise
+        // we'd stomp the user's selections every relaunch.
+        let autoShowcase = trophies.filter { $0.isUnlocked }.prefix(3).map(\.id)
+        if !autoShowcase.isEmpty, var me, me.showcasedTrophyIDs.isEmpty {
             me.showcasedTrophyIDs = Array(autoShowcase)
             self.me = me
         }
@@ -63,6 +86,81 @@ final class SocialDataService {
         trophies = []
         streak = Streak(currentDays: 0, longestDays: 0, weeklyStreakWeeks: 0,
                         atRiskByDate: nil, stakedSweat: 0, stakeExpiresAt: nil, multiplier: 1.0)
+    }
+
+    /// Wipes the in-memory `me` row and forces the next `seed()` to
+    /// rebuild from scratch instead of carrying over the previous
+    /// signed-in user's profile. Called from AppState.signOut.
+    func clearMe() {
+        me = nil
+        seeded = false
+    }
+
+    /// Re-derive workout-driven shelves (trophies, streak, PRs) from
+    /// a fresh workouts list. seed() is called at launch with an
+    /// empty workouts list (HealthKit hasn't loaded yet), so we have
+    /// to refresh these shelves once the rehydrate completes.
+    /// Otherwise trophies stay all-locked even when the user clearly
+    /// has qualifying workouts.
+    func refreshFromWorkouts(_ workouts: [Workout]) {
+        trophies = Self.seedTrophies(workouts: workouts)
+        streak = Self.seedStreak(workouts: workouts)
+        personalRecords = PRCalculator.all(from: workouts)
+    }
+
+    /// Insert any user workouts that aren't already represented as a
+    /// feed item — runs after every backfill so a workout finished
+    /// while the app was backgrounded (e.g. a watch session that
+    /// just synced) shows up at the top of the feed without forcing
+    /// a relaunch. Critical for live demos: walk on stage → finish
+    /// watch → return to app → workout appears + the "Claim Sweat"
+    /// celebration is one tap away.
+    func appendNewUserWorkouts(_ workouts: [Workout]) {
+        guard let me else { return }
+        // Workout ids the user already has a feed card for.
+        let existing: Set<UUID> = Set(
+            feed.compactMap { $0.athlete.id == me.id ? $0.workout.id : nil }
+        )
+        let fresh = workouts
+            .filter { !existing.contains($0.id) }
+            .sorted { $0.startDate > $1.startDate }
+        guard !fresh.isEmpty else { return }
+        let newItems: [FeedItem] = fresh.prefix(10).map { w in
+            let hour = Calendar.current.component(.hour, from: w.startDate)
+            return FeedItem(
+                id: UUID(),
+                athlete: me,
+                workout: w,
+                title: Self.defaultTitle(for: w, hour: hour),
+                caption: nil,
+                mapPreviewSeed: Int(abs(w.id.hashValue) % 1000),
+                kudos: [],
+                comments: [],
+                userHasKudosed: false,
+                tippedSweat: 0,
+                taggedAthleteIDs: []
+            )
+        }
+        feed.insert(contentsOf: newItems, at: 0)
+        AppPersistence.saveFeed(feed)
+    }
+
+    /// Mark a claimable trophy as claimed and persist the key so the
+    /// unlock survives a relaunch. Caller is responsible for ensuring
+    /// the qualifying workout is on chain before calling this — see
+    /// TrophyDetailSheet.claim() for the full flow.
+    func markTrophyClaimed(stableKey: String) {
+        guard let idx = trophies.firstIndex(where: { $0.stableKey == stableKey })
+        else { return }
+        var trophy = trophies[idx]
+        // No-op if already unlocked, e.g. rapid double-tap.
+        guard trophy.earnedAt == nil else { return }
+        trophy.earnedAt = .now
+        trophies[idx] = trophy
+
+        var keys = AppPersistence.loadClaimedTrophyKeys()
+        keys.insert(stableKey)
+        AppPersistence.saveClaimedTrophyKeys(keys)
     }
 
     // MARK: - Live data refresh (Cloudflare API)
@@ -156,13 +254,17 @@ final class SocialDataService {
             refreshHadError = true
         }
 
-        async let clubsResult: [ClubDTO]? = try? APIClient.shared.fetchClubs(filter: "all")
-        async let meResult: AthleteDTO? = try? APIClient.shared.fetchMe()
-        async let shoesResult: [ShoeDTO]? = try? APIClient.shared.fetchShoes(athleteId: "0xdemo_me")
-        async let prsResult: [PRDTO]? = try? APIClient.shared.fetchPRs(athleteId: "0xdemo_me")
-
-        let (fetchedClubs, fetchedMe, fetchedShoes, fetchedPRs) =
-            await (clubsResult, meResult, shoesResult, prsResult)
+        // Sequential rather than parallel — five concurrent URLSession
+        // connections on launch saturate the per-host pool (default
+        // ~6) and cause subsequent taps (kudos, tip, mint) to queue
+        // for many seconds on flaky HTTP/3 paths. Running them in
+        // sequence lets URLSession reuse one warmed connection, which
+        // is much faster on bad networks and only marginally slower
+        // on healthy ones.
+        let fetchedClubs: [ClubDTO]? = try? await APIClient.shared.fetchClubs(filter: "all")
+        let fetchedMe: AthleteDTO? = try? await APIClient.shared.fetchMe()
+        let fetchedShoes: [ShoeDTO]? = try? await APIClient.shared.fetchShoes(athleteId: "0xdemo_me")
+        let fetchedPRs: [PRDTO]? = try? await APIClient.shared.fetchPRs(athleteId: "0xdemo_me")
 
         if let env = feedEnv, !env.items.isEmpty {
             let items = env.items.map(FeedItem.init(dto:))
@@ -183,6 +285,10 @@ final class SocialDataService {
                     athletes.append(a)
                 }
             }
+            // Persist top page + athletes so the next launch shows
+            // real content immediately instead of waiting on /feed.
+            AppPersistence.saveFeed(feed)
+            AppPersistence.saveAthletes(athletes)
         }
         if let dtos = fetchedClubs, !dtos.isEmpty {
             let mapped = dtos.map(Club.init(dto:))
@@ -191,7 +297,11 @@ final class SocialDataService {
                 zip(mapped.map(\.id), dtos.map(\.id)))
         }
         if let meDto = fetchedMe {
-            me = Athlete(dto: meDto)
+            // Merge instead of replace — preserves local-only fields
+            // (photoData bytes for instant render, showcasedTrophyIDs)
+            // that the server can't know about. Wholesale replace would
+            // wipe the user's avatar bytes between launches.
+            applyMePatch(meDto)
         }
         if let dtos = fetchedShoes {
             let mapped = dtos.map(Shoe.init(dto:))
@@ -266,6 +376,17 @@ final class SocialDataService {
                     feedItemId: apiId, liked: liking
                 )
             }
+        }
+    }
+
+    /// After a successful on-chain mint, patch any feed items that
+    /// wrap this workout so the verified strip flips from "Claim Sweat"
+    /// to the on-chain link without needing a full refresh.
+    func markFeedItemMinted(workoutId: UUID, digest: String, walrusBlobId: String?) {
+        for idx in feed.indices where feed[idx].workout.id == workoutId {
+            feed[idx].workout.suiTxDigest = digest
+            feed[idx].workout.walrusBlobId = walrusBlobId
+            feed[idx].workout.verified = true
         }
     }
 
@@ -401,6 +522,7 @@ final class SocialDataService {
             current.showcasedTrophyIDs = Array(ids.prefix(3))
         }
         self.me = current
+        AppPersistence.saveMe(current)
 
         // Fire-and-forget sync to the server. Server's Zod schema
         // rejects handles that don't match [a-z0-9_]{2,24} — EditProfile
@@ -442,6 +564,7 @@ final class SocialDataService {
         if let tone = AvatarTone(rawValue: dto.avatarTone) { current.avatarTone = tone }
         if let tone = AvatarTone(rawValue: dto.bannerTone) { current.bannerTone = tone }
         self.me = current
+        AppPersistence.saveMe(current)
     }
 
     func retireShoe(_ id: UUID) {
@@ -1055,62 +1178,150 @@ private extension SocialDataService {
     static func seedTrophies(workouts: [Workout]) -> [Trophy] {
         let totalKm = workouts.reduce(0.0) { $0 + ($1.distanceMeters ?? 0) / 1000 }
         let totalWorkouts = workouts.count
+        let claimed = AppPersistence.loadClaimedTrophyKeys()
 
-        func trophy(_ title: String, _ sub: String, icon: String, rarity: Rarity,
-                    progress: Double, cat: TrophyCategory, colors: [String],
-                    earned: Bool = false, daysAgo: Int = 7) -> Trophy {
-            Trophy(
-                id: UUID(), title: title, subtitle: sub, icon: icon, rarity: rarity,
-                earnedAt: earned ? Calendar.current.date(byAdding: .day, value: -daysAgo, to: .now) : nil,
+        // The qualifying workout becomes the on-chain payload when
+        // the user claims, so it has to clear the server's Zod
+        // bounds — anything that would 422 is functionally locked
+        // for our flow even if it technically meets the criterion.
+        // HealthKit aggregate rows occasionally come back with
+        // 600km+ distance or absurd point totals; filter them out
+        // here so we never pick one as the "qualifying" workout.
+        //
+        // Bounds mirror cloudflare/src/schemas/workouts.ts:
+        //   distanceMeters ≤ 500_000 (500km)
+        //   points         ≤ 10_000
+        //   duration in    [60, 86_400] seconds
+        func submittable(_ w: Workout) -> Bool {
+            let d = w.distanceMeters ?? 0
+            return d <= 500_000
+                && w.points > 0
+                && w.points <= 10_000
+                && w.duration >= 60
+                && w.duration <= 86_400
+        }
+
+        // Earliest workout overall (for "First Workout"). Filtered
+        // to submittable so we don't pick a corrupted aggregate.
+        let firstWorkout = workouts
+            .filter(submittable)
+            .min(by: { $0.startDate < $1.startDate })
+        // Earliest qualifying run for each distance criterion. Earliest
+        // (rather than longest) so we don't keep relabeling the same
+        // marathon across runs after a longer one is added.
+        func firstRun(distanceAtLeast meters: Double) -> Workout? {
+            workouts
+                .filter { ($0.distanceMeters ?? 0) >= meters && submittable($0) }
+                .min(by: { $0.startDate < $1.startDate })
+        }
+        // Cumulative-distance trophies attribute to the workout that
+        // pushed total over the threshold — chronologically the run
+        // where the user "crossed" 100km. Skip the crossing workout
+        // if it isn't submittable and try the next one that is, so
+        // a corrupted aggregate doesn't lock the user out.
+        func crossingWorkout(thresholdKm: Double) -> Workout? {
+            var running = 0.0
+            for w in workouts.sorted(by: { $0.startDate < $1.startDate }) {
+                running += (w.distanceMeters ?? 0) / 1000
+                if running >= thresholdKm && submittable(w) { return w }
+            }
+            return nil
+        }
+
+        func trophy(key: String, _ title: String, _ sub: String,
+                    icon: String, rarity: Rarity, progress: Double,
+                    cat: TrophyCategory, colors: [String],
+                    qualifying: Workout?) -> Trophy {
+            // Trophy state derives from two facts:
+            //   1. Has the user done the qualifying work? -> qualifyingWorkoutId
+            //   2. Have they tapped Claim? -> earnedAt
+            let qualifyingId = qualifying?.id
+            let earnedAt: Date? = claimed.contains(key) && qualifyingId != nil
+                ? (qualifying?.startDate ?? .now)
+                : nil
+            return Trophy(
+                id: UUID(),
+                stableKey: key,
+                title: title, subtitle: sub, icon: icon, rarity: rarity,
+                earnedAt: earnedAt,
                 progress: progress, category: cat,
-                gradient: colors.map(hexColor)
+                gradient: colors.map(hexColor),
+                qualifyingWorkoutId: qualifyingId
             )
         }
         return [
-            trophy("First Workout", "Logged your first session", icon: "sparkles",
-                   rarity: .common, progress: min(1, Double(totalWorkouts)),
+            trophy(key: "first-workout",
+                   "First Workout", "Logged your first session",
+                   icon: "sparkles", rarity: .common,
+                   progress: min(1, Double(totalWorkouts)),
                    cat: .firsts, colors: ["#A3FF70", "#0F6B38"],
-                   earned: totalWorkouts >= 1, daysAgo: 30),
-            trophy("5K Finisher", "Run 5 km in one workout", icon: "figure.run.circle.fill",
-                   rarity: .common,
-                   progress: min(1, (workouts.first(where: { ($0.distanceMeters ?? 0) >= 5000 }) != nil) ? 1 : 0),
+                   qualifying: firstWorkout),
+            trophy(key: "5k-finisher",
+                   "5K Finisher", "Run 5 km in one workout",
+                   icon: "figure.run.circle.fill", rarity: .common,
+                   progress: min(1, firstRun(distanceAtLeast: 5000) != nil ? 1 : 0),
                    cat: .firsts, colors: ["#FFB020", "#FF5C2A"],
-                   earned: workouts.contains { ($0.distanceMeters ?? 0) >= 5000 }, daysAgo: 10),
-            trophy("10K Club", "Run 10 km in one workout", icon: "10.circle.fill",
-                   rarity: .rare,
+                   qualifying: firstRun(distanceAtLeast: 5000)),
+            trophy(key: "10k-club",
+                   "10K Club", "Run 10 km in one workout",
+                   icon: "10.circle.fill", rarity: .rare,
                    progress: min(1, (workouts.compactMap { $0.distanceMeters }.max() ?? 0) / 10000),
-                   cat: .firsts, colors: ["#45A9FF", "#275EC7"]),
-            trophy("Half Marathon", "Run 21.1 km in one workout", icon: "figure.run",
-                   rarity: .epic,
+                   cat: .firsts, colors: ["#45A9FF", "#275EC7"],
+                   qualifying: firstRun(distanceAtLeast: 10000)),
+            trophy(key: "half-marathon",
+                   "Half Marathon", "Run 21.1 km in one workout",
+                   icon: "figure.run", rarity: .epic,
                    progress: min(1, (workouts.compactMap { $0.distanceMeters }.max() ?? 0) / 21100),
-                   cat: .firsts, colors: ["#B57BFF", "#5534BF"]),
-            trophy("First Marathon", "Finish a 42.2 km run", icon: "trophy.fill",
-                   rarity: .legendary,
+                   cat: .firsts, colors: ["#B57BFF", "#5534BF"],
+                   qualifying: firstRun(distanceAtLeast: 21100)),
+            trophy(key: "first-marathon",
+                   "First Marathon", "Finish a 42.2 km run",
+                   icon: "trophy.fill", rarity: .legendary,
                    progress: min(1, (workouts.compactMap { $0.distanceMeters }.max() ?? 0) / 42195),
-                   cat: .firsts, colors: ["#FFD246", "#E26C00"]),
-            trophy("100k Total", "Run 100 km across all workouts", icon: "chart.bar.fill",
-                   rarity: .rare, progress: min(1, totalKm / 100),
+                   cat: .firsts, colors: ["#FFD246", "#E26C00"],
+                   qualifying: firstRun(distanceAtLeast: 42195)),
+            trophy(key: "100k-total",
+                   "100k Total", "Run 100 km across all workouts",
+                   icon: "chart.bar.fill", rarity: .rare,
+                   progress: min(1, totalKm / 100),
                    cat: .distance, colors: ["#8CF0A3", "#1B7A3F"],
-                   earned: totalKm >= 100, daysAgo: 3),
-            trophy("7-Day Streak", "Work out 7 days in a row", icon: "flame.fill",
-                   rarity: .rare, progress: 0.43, cat: .streak,
-                   colors: ["#FF8A5C", "#C7321E"]),
-            trophy("30-Day Streak", "Work out 30 days in a row", icon: "flame.fill",
-                   rarity: .epic, progress: 0.12, cat: .streak,
-                   colors: ["#FF3B8A", "#8B1044"]),
-            trophy("Kudos Giver", "Send 100 kudos to friends", icon: "hand.thumbsup.fill",
-                   rarity: .common, progress: 0.22, cat: .social,
-                   colors: ["#9EE7FF", "#2B6EA3"]),
-            trophy("Patron", "Tip 500 Sweat to other athletes", icon: "heart.circle.fill",
-                   rarity: .epic, progress: 0.05, cat: .social,
-                   colors: ["#FFB3D2", "#94325E"]),
-            trophy("April 100k Finisher", "Hit 100 km in April", icon: "medal.star.fill",
-                   rarity: .rare, progress: 0.42, cat: .seasonal,
-                   colors: ["#F8D35B", "#AE6E1C"]),
-            trophy("Nike Founders' Drop", "Early access to limited-edition Vaporfly",
+                   qualifying: crossingWorkout(thresholdKm: 100)),
+            // Trophies below have no single qualifying workout —
+            // they're driven by ongoing patterns (streaks, kudos
+            // sent, season totals) so we pass `qualifying: nil`.
+            // They render as truly locked until those patterns are
+            // computed end-to-end (out of scope for the demo).
+            trophy(key: "7-day-streak",
+                   "7-Day Streak", "Work out 7 days in a row",
+                   icon: "flame.fill", rarity: .rare, progress: 0.43,
+                   cat: .streak, colors: ["#FF8A5C", "#C7321E"],
+                   qualifying: nil),
+            trophy(key: "30-day-streak",
+                   "30-Day Streak", "Work out 30 days in a row",
+                   icon: "flame.fill", rarity: .epic, progress: 0.12,
+                   cat: .streak, colors: ["#FF3B8A", "#8B1044"],
+                   qualifying: nil),
+            trophy(key: "kudos-giver",
+                   "Kudos Giver", "Send 100 kudos to friends",
+                   icon: "hand.thumbsup.fill", rarity: .common, progress: 0.22,
+                   cat: .social, colors: ["#9EE7FF", "#2B6EA3"],
+                   qualifying: nil),
+            trophy(key: "patron",
+                   "Patron", "Tip 500 Sweat to other athletes",
+                   icon: "heart.circle.fill", rarity: .epic, progress: 0.05,
+                   cat: .social, colors: ["#FFB3D2", "#94325E"],
+                   qualifying: nil),
+            trophy(key: "april-100k",
+                   "April 100k Finisher", "Hit 100 km in April",
+                   icon: "medal.star.fill", rarity: .rare, progress: 0.42,
+                   cat: .seasonal, colors: ["#F8D35B", "#AE6E1C"],
+                   qualifying: nil),
+            trophy(key: "nike-founders-drop",
+                   "Nike Founders' Drop", "Early access to limited-edition Vaporfly",
                    icon: "bag.fill.badge.plus",
-                   rarity: .legendary, progress: 0.0, cat: .sponsor,
-                   colors: ["#1A1A1A", "#5A5A5A"])
+                   rarity: .legendary, progress: 0.0,
+                   cat: .sponsor, colors: ["#1A1A1A", "#5A5A5A"],
+                   qualifying: nil)
         ]
     }
 

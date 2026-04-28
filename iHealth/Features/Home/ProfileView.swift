@@ -767,7 +767,7 @@ struct ProfileView: View {
                         Text("Trophies")
                             .font(.titleM).foregroundStyle(Theme.Color.ink)
                         Spacer()
-                        Text("\(social.trophies.filter { !$0.isLocked }.count) / \(social.trophies.count)")
+                        Text("\(social.trophies.filter { $0.isUnlocked }.count) / \(social.trophies.count)")
                             .font(.system(size: 12, weight: .semibold, design: .rounded))
                             .foregroundStyle(Theme.Color.inkSoft)
                         Image(systemName: "chevron.right")

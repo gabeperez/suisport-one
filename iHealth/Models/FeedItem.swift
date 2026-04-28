@@ -3,7 +3,7 @@ import Foundation
 /// A workout as seen in a social feed — wraps a `Workout` with an owner,
 /// title, description, kudos, and comments. The raw `Workout` is the
 /// authoritative sensor data; the `FeedItem` is the social layer around it.
-struct FeedItem: Identifiable, Hashable {
+struct FeedItem: Identifiable, Hashable, Codable {
     var id: UUID
     var athlete: Athlete
     var workout: Workout
@@ -20,14 +20,14 @@ struct FeedItem: Identifiable, Hashable {
     var commentCount: Int { comments.count }
 }
 
-struct Kudos: Identifiable, Hashable {
+struct Kudos: Identifiable, Hashable, Codable {
     var id: UUID
     var athlete: Athlete
     var amountSweat: Int             // 0 = plain kudos; >0 = tipped kudos
     var at: Date
 }
 
-struct Comment: Identifiable, Hashable {
+struct Comment: Identifiable, Hashable, Codable {
     var id: UUID
     var athlete: Athlete
     var body: String

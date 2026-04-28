@@ -215,7 +215,7 @@ struct AthleteProfileView: View {
             if isMe {
                 smallStat(icon: "trophy.fill",
                           label: "Trophies",
-                          value: "\(social.trophies.filter { !$0.isLocked }.count)",
+                          value: "\(social.trophies.filter { $0.isUnlocked }.count)",
                           tint: Theme.Color.hot,
                           isPlaceholder: false)
             } else {

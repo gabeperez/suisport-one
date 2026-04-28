@@ -26,6 +26,11 @@ struct iHealthApp: App {
             Task { @MainActor in
                 if appState.currentUser != nil {
                     await appState.backfillWorkouts { _ in }
+                    // Pull server-known digests so any workouts the
+                    // user minted on another device (or before this
+                    // install) show as verified instead of falsely
+                    // offering "Claim Sweat" again.
+                    await appState.reconcileWorkoutsFromServer()
                 }
                 await social.refresh()
             }

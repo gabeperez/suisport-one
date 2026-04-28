@@ -16,6 +16,7 @@ struct WorkoutDetailView: View {
     @State private var deleteError: String?
     @State private var claimError: String?
     @State private var mintRequest: MintingCelebrationRequest?
+    @State private var mintReceipt: MintReceipt?
 
     var body: some View {
         ScrollView {
@@ -96,6 +97,17 @@ struct WorkoutDetailView: View {
                     mintRequest = nil
                 }
             )
+        }
+        // After the celebration dismisses, hand the user a deliberate
+        // receipt sheet with Suiscan + Walrus + Move-package links.
+        // Gives them an unmissable moment to click through and
+        // verify on chain.
+        .sheet(item: $mintReceipt) { receipt in
+            MintSuccessSheet(receipt: receipt) {
+                mintReceipt = nil
+            }
+            .presentationDetents([.large])
+            .presentationCornerRadius(Theme.Radius.xl)
         }
     }
 
@@ -240,8 +252,15 @@ struct WorkoutDetailView: View {
 
     @ViewBuilder
     private func verifiedStrip(for item: FeedItem) -> some View {
-        let isOnChain = (item.workout.suiTxDigest?.isEmpty == false)
-        if isOnChain {
+        let hasDigest = (item.workout.suiTxDigest?.isEmpty == false)
+        // Server already told us this workout exists on chain (via
+        // a 422 duplicate_submission response on a prior claim
+        // attempt) — we just don't have the specific tx digest
+        // locally yet. Render the verified strip pointing at the
+        // package object as a fallback so the user doesn't see
+        // "Claim Sweat" → 422 → "already claimed" looping.
+        let alreadyLogged = app.alreadyLoggedWorkoutIDs.contains(item.workout.id)
+        if hasDigest || alreadyLogged {
             onChainStrip(for: item)
         } else if isOwnWorkout {
             claimSweatButton(for: item)
@@ -251,7 +270,14 @@ struct WorkoutDetailView: View {
     }
 
     private func onChainStrip(for item: FeedItem) -> some View {
-        Link(destination: verifiedExplorerURL(for: item)) {
+        // Subtitle copy adapts to whether we have a specific tx
+        // digest (specific proof) or only a "server says it's on
+        // chain" signal (package fallback).
+        let hasDigest = (item.workout.suiTxDigest?.isEmpty == false)
+        let subtitle = hasDigest
+            ? "Tap to see the proof"
+            : "On chain · tap to see the contract"
+        return Link(destination: verifiedExplorerURL(for: item)) {
             HStack(spacing: 10) {
                 Image(systemName: "checkmark.seal.fill")
                     .font(.system(size: 16, weight: .bold))
@@ -260,7 +286,7 @@ struct WorkoutDetailView: View {
                     Text("Verified workout")
                         .font(.system(size: 14, weight: .semibold, design: .rounded))
                         .foregroundStyle(Theme.Color.ink)
-                    Text("Tap to see the proof")
+                    Text(subtitle)
                         .font(.system(size: 12))
                         .foregroundStyle(Theme.Color.inkSoft)
                 }
@@ -358,6 +384,24 @@ struct WorkoutDetailView: View {
                     walrusBlobId: resp.walrusBlobId
                 )
                 app.recordMintReward(resp.pointsMinted)
+                // Slight delay so the celebration cover finishes its
+                // dismiss animation before the receipt sheet slides
+                // up — otherwise SwiftUI races the two transitions.
+                let pointsMinted = resp.pointsMinted
+                let walrusBlobId = resp.walrusBlobId
+                // Use the feed item's existing title if non-empty,
+                // else fall back to the workout type's display name.
+                let workoutTitle = item.title.isEmpty
+                    ? item.workout.type.title
+                    : item.title
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
+                    mintReceipt = MintReceipt(
+                        pointsMinted: pointsMinted,
+                        txDigest: digest,
+                        walrusBlobId: walrusBlobId,
+                        workoutTitle: workoutTitle
+                    )
+                }
             } else {
                 let pipeline = resp.attestation?.pipeline ?? "unknown"
                 claimError = "Saved, but the on-chain step is still pending (\(pipeline)). Try again in a moment."

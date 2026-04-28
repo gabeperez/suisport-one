@@ -51,6 +51,13 @@ struct MintSuccessSheet: View {
     @State private var displayedPoints: Int = 0
     @State private var sparkle = false
 
+    /// Suiscan URL for the SuiSport ONE Move package — same id used
+    /// by WorkoutDetailView's verifiedStrip fallback. Lets the
+    /// user verify the contract code that minted their workout.
+    private static let packageExplorerURL = URL(
+        string: "https://suiscan.xyz/testnet/object/0x15c33f76fba3bc10a327d9792c7948e1eefd0162a13e7a0ac4774d7b8fec2b2c"
+    )!
+
     var body: some View {
         VStack(alignment: .leading, spacing: Theme.Space.lg) {
             grabber
@@ -71,7 +78,7 @@ struct MintSuccessSheet: View {
 
             VStack(spacing: 10) {
                 explorerLink(
-                    title: "View proof on Sui",
+                    title: "View transaction on Sui",
                     subtitle: shortDigest(receipt.txDigest),
                     icon: "checkmark.seal.fill",
                     url: receipt.suiscanURL
@@ -84,6 +91,12 @@ struct MintSuccessSheet: View {
                         url: walrus
                     )
                 }
+                explorerLink(
+                    title: "Verify the contract",
+                    subtitle: "suisport Move package on Sui",
+                    icon: "doc.text.magnifyingglass",
+                    url: Self.packageExplorerURL
+                )
             }
 
             disclaimer

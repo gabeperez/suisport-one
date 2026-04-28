@@ -91,6 +91,61 @@ final class AppState {
     private func rehydrateWorkoutsOnLaunch() async {
         guard currentUser != nil else { return }
         await backfillWorkouts { _ in }
+        // After local cache is restored, ask the server which
+        // workouts are on chain. Fills in digests we don't have
+        // locally (fresh install, device swap, cleared cache) so
+        // the user doesn't see "Claim Sweat → 422" loops on
+        // already-minted workouts.
+        await reconcileWorkoutsFromServer()
+    }
+
+    /// Match server-known on-chain workouts back to local HealthKit
+    /// workouts and fill in any missing digests in the local cache.
+    /// Matching uses the same canonical bucket the server's fraud
+    /// module uses for dedupe — `(type, start_minute, duration_min,
+    /// distance_10m)` — so a HealthKit workout that produced a
+    /// server row is reliably re-paired here.
+    @MainActor
+    func reconcileWorkoutsFromServer() async {
+        guard currentUser != nil else { return }
+        guard let resp = try? await APIClient.shared.fetchMyWorkouts() else { return }
+        var newCache = workoutDigestCache
+        var matched = 0
+        for entry in resp.workouts {
+            let serverStartMin = Int(entry.startDate / 60)
+            let serverDurMin = Int(entry.durationSeconds / 60.0)
+            let serverDist10m = Int(((entry.distanceMeters ?? 0) / 10).rounded()) * 10
+            for w in workouts where newCache[w.id] == nil {
+                let localStartMin = Int(w.startDate.timeIntervalSince1970 / 60)
+                let localDurMin = Int(w.duration / 60.0)
+                let localDist10m = Int(((w.distanceMeters ?? 0) / 10).rounded()) * 10
+                if localStartMin == serverStartMin
+                    && localDurMin == serverDurMin
+                    && localDist10m == serverDist10m
+                    && w.type.rawValue == entry.type {
+                    newCache[w.id] = AppPersistence.WorkoutDigestRecord(
+                        digest: entry.txDigest,
+                        walrusBlobId: entry.walrusBlobId
+                    )
+                    matched += 1
+                    break
+                }
+            }
+        }
+        guard matched > 0 else { return }
+        workoutDigestCache = newCache
+        // Re-attach the just-discovered digests onto the in-memory
+        // workouts list so the UI flips immediately without waiting
+        // for the next backfill.
+        let cache = newCache
+        workouts = workouts.map { w in
+            guard w.suiTxDigest == nil, let record = cache[w.id] else { return w }
+            var copy = w
+            copy.suiTxDigest = record.digest
+            copy.walrusBlobId = record.walrusBlobId
+            copy.verified = true
+            return copy
+        }
     }
 
     /// Hits /v1/auth/whoami once at launch. If the server says the
@@ -124,10 +179,25 @@ final class AppState {
     var sweatPoints: SweatPoints = .zero
     /// Workout IDs the server told us are already saved (HTTP 422
     /// duplicate_submission). We don't have the real Sui tx digest
-    /// for these on iOS, but we know they exist in D1, so we mark
-    /// them locally so the upload sheet hides them from the
-    /// selectable list and shows an "Already logged" pill instead.
-    var alreadyLoggedWorkoutIDs: Set<UUID> = []
+    /// for these on iOS, but knowing the workout is on chain lets
+    /// us flip the verified strip on without another network call.
+    /// Persisted across launches so a user doesn't see the same
+    /// "Claim Sweat → 422" loop after a relaunch.
+    var alreadyLoggedWorkoutIDs: Set<UUID> =
+        AppPersistence.loadAlreadyLoggedWorkoutIDs() {
+        didSet { AppPersistence.saveAlreadyLoggedWorkoutIDs(alreadyLoggedWorkoutIDs) }
+    }
+
+    /// Persisted cache of `(suiTxDigest, walrusBlobId)` per workout
+    /// id. HealthKit doesn't carry our chain receipts so without this
+    /// cache, every relaunch re-presents "Claim Sweat" for workouts
+    /// the user already claimed. Survives across launches; cleared
+    /// on signOut.
+    var workoutDigestCache: [UUID: AppPersistence.WorkoutDigestRecord]
+        = AppPersistence.loadWorkoutDigests()
+    {
+        didSet { AppPersistence.saveWorkoutDigests(workoutDigestCache) }
+    }
 
     /// Local ledger of Sweat credited (mints, including bonuses) and
     /// redeemed (sample tickets, drops). Persisted across launches —
@@ -135,6 +205,88 @@ final class AppState {
     /// vs what was spent." See SweatLedger for math + intent.
     var sweatLedger: SweatLedger = AppPersistence.loadSweatLedger() ?? .zero {
         didSet { AppPersistence.saveSweatLedger(sweatLedger) }
+    }
+
+    /// Set of fighter athleteIds the user has unlocked the community
+    /// for. Drives the locked/unlocked state in CommunityTab. Phase 1
+    /// is local-only; Phase 2 moves authoritative state to D1.
+    var communityMemberships: Set<String> = AppPersistence.loadCommunityMemberships() {
+        didSet { AppPersistence.saveCommunityMemberships(communityMemberships) }
+    }
+
+    /// Mark a fighter's community as unlocked for the current user.
+    /// Idempotent — re-unlocking a community is a no-op (no double
+    /// Sweat charge, since the caller's `recordRedemption` is the
+    /// source of truth on cost).
+    func unlockCommunity(_ fighterId: String) {
+        guard !communityMemberships.contains(fighterId) else { return }
+        communityMemberships.insert(fighterId)
+    }
+
+    /// Per-fighter training camp progress. Each entry tracks which
+    /// sessions of that fighter's plan the user has completed, with
+    /// strict sequential ordering — `currentSessionIndex(in:)` is
+    /// always the lowest unfinished session.
+    var trainingProgress: [String: UserTrainingProgress] = AppPersistence.loadTrainingProgress() {
+        didSet { AppPersistence.saveTrainingProgress(trainingProgress) }
+    }
+
+    /// Read-only view of the user's progress for a given plan.
+    /// Returns a zero-completed scaffold for plans that haven't been
+    /// started yet — no side effects, safe to call from any view's
+    /// body.
+    func progress(for plan: FighterTrainingPlan) -> UserTrainingProgress {
+        trainingProgress[plan.id] ?? UserTrainingProgress(
+            fighterId: plan.id,
+            completedSessionKeys: [],
+            startedAt: .now,
+            lastCompletedAt: nil
+        )
+    }
+
+    /// Mark a session complete for the given fighter's plan. Only
+    /// advances when the session being marked is the *current* one
+    /// (sequential progression — the user can't tap a future session
+    /// to skip ahead). Creates the progress record lazily on first
+    /// completion. Returns `true` if the camp just finished as a
+    /// result, so the caller can fire the auto-unlock community
+    /// celebration.
+    @discardableResult
+    func completeSession(
+        _ session: TrainingSession,
+        in plan: FighterTrainingPlan
+    ) -> Bool {
+        var current = trainingProgress[plan.id] ?? UserTrainingProgress(
+            fighterId: plan.id,
+            completedSessionKeys: [],
+            startedAt: .now,
+            lastCompletedAt: nil
+        )
+        guard !current.completedSessionKeys.contains(session.stableKey) else { return false }
+        guard current.currentSessionIndex(in: plan) == session.index else { return false }
+        current.completedSessionKeys.insert(session.stableKey)
+        current.lastCompletedAt = .now
+        trainingProgress[plan.id] = current
+
+        // Auto-unlock the community when every session has been
+        // completed — closes the "train like them" loop from Phase 1.
+        if current.isComplete(in: plan) {
+            unlockCommunity(plan.id)
+            return true
+        }
+        return false
+    }
+
+    /// All plans the user has at least one completed (or started)
+    /// session in — drives the "Training Plans" section on
+    /// ProfileView and the Continue-camp menu in RecordSheet.
+    func startedTrainingPlans(in plans: [String: FighterTrainingPlan]) -> [(plan: FighterTrainingPlan, progress: UserTrainingProgress)] {
+        plans.values
+            .compactMap { plan in
+                guard let p = trainingProgress[plan.id] else { return nil }
+                return (plan, p)
+            }
+            .sorted { $0.progress.lastCompletedAt ?? $0.progress.startedAt > $1.progress.lastCompletedAt ?? $1.progress.startedAt }
     }
 
     /// Add a successful mint's `pointsMinted` (server-final, includes
@@ -252,6 +404,16 @@ final class AppState {
     /// flip from "mintable" → "on chain ↗" without a refresh.
     @MainActor
     func mintWorkout(_ workout: Workout) async throws -> SubmitWorkoutResponse {
+        // Sanitize paceSecondsPerKm before submit — Apple Health
+        // synthesizes absurd paces for low-distance walks (a 20-meter
+        // amble over 30 min computes to 90,000 sec/km), which busts
+        // the server's Zod cap of 7200. Drop the field when it's
+        // out of range; the server re-derives pace from duration +
+        // distance for its fraud check anyway.
+        let safePace: Double? = {
+            guard let p = workout.paceSecondsPerKm else { return nil }
+            return (p > 0 && p <= 7200) ? p : nil
+        }()
         let req = SubmitWorkoutRequest(
             type: workout.type.rawValue,
             startDate: workout.startDate.timeIntervalSince1970,
@@ -259,7 +421,7 @@ final class AppState {
             distanceMeters: workout.distanceMeters,
             energyKcal: workout.energyKcal,
             avgHeartRate: workout.avgHeartRate,
-            paceSecondsPerKm: workout.paceSecondsPerKm,
+            paceSecondsPerKm: safePace,
             points: workout.points,
             title: defaultTitle(for: workout),
             caption: nil
@@ -268,11 +430,19 @@ final class AppState {
         // Only treat as on-chain if the worker actually ran the chain
         // step (digest doesn't start with `pending_`). Stub mode still
         // returns a placeholder we don't want to deep-link to.
-        if !resp.txDigest.hasPrefix("pending_"),
-           let idx = workouts.firstIndex(where: { $0.id == workout.id }) {
-            workouts[idx].suiTxDigest = resp.txDigest
-            workouts[idx].walrusBlobId = resp.walrusBlobId
-            workouts[idx].verified = true
+        if !resp.txDigest.hasPrefix("pending_") {
+            if let idx = workouts.firstIndex(where: { $0.id == workout.id }) {
+                workouts[idx].suiTxDigest = resp.txDigest
+                workouts[idx].walrusBlobId = resp.walrusBlobId
+                workouts[idx].verified = true
+            }
+            // Persist the digest so a relaunch rehydrates this
+            // workout as on-chain instead of falsely offering
+            // "Claim Sweat" again.
+            workoutDigestCache[workout.id] = .init(
+                digest: resp.txDigest,
+                walrusBlobId: resp.walrusBlobId
+            )
         }
         return resp
     }
@@ -336,6 +506,14 @@ final class AppState {
         AppPersistence.clearClaimedTrophyKeys()
         AppPersistence.clearSweatLedger()
         sweatLedger = .zero
+        AppPersistence.clearCommunityMemberships()
+        communityMemberships = []
+        AppPersistence.clearTrainingProgress()
+        trainingProgress = [:]
+        AppPersistence.clearWorkoutDigests()
+        workoutDigestCache = [:]
+        AppPersistence.clearAlreadyLoggedWorkoutIDs()
+        alreadyLoggedWorkoutIDs = []
         SocialDataService.shared.clearMe()
     }
 
@@ -395,8 +573,23 @@ final class AppState {
 
     func backfillWorkouts(onProgress: @escaping (Int) -> Void) async {
         do {
-            let workouts = try await HealthKitService.shared.loadHistoricalWorkouts { count in
+            let raw = try await HealthKitService.shared.loadHistoricalWorkouts { count in
                 onProgress(count)
+            }
+            // Re-attach previously-minted chain digests to freshly
+            // loaded HealthKit workouts. Without this, every
+            // relaunch presents "Claim Sweat" for already-on-chain
+            // workouts (HealthKit doesn't carry our Sui receipts)
+            // and the user only learns it's a duplicate after the
+            // server 422s.
+            let cache = workoutDigestCache
+            let workouts: [Workout] = raw.map { w in
+                guard let record = cache[w.id] else { return w }
+                var copy = w
+                copy.suiTxDigest = record.digest
+                copy.walrusBlobId = record.walrusBlobId
+                copy.verified = true
+                return copy
             }
             self.workouts = workouts
             let total = workouts.reduce(0) { $0 + $1.points }

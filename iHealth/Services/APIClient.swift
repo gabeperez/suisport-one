@@ -64,6 +64,15 @@ nonisolated final class APIClient: @unchecked Sendable {
 
     func fetchMe() async throws -> AthleteDTO { (try await get("/me") as AthleteEnvelope).athlete }
 
+    /// Server's view of the current user's on-chain workouts. Used
+    /// by AppState.reconcileWorkoutsFromServer to fill in digests
+    /// for workouts the iOS device hasn't seen the mint receipt for
+    /// (fresh install, device swap, cleared cache). Filters out
+    /// workouts whose chain step never landed.
+    func fetchMyWorkouts() async throws -> MyWorkoutsResponse {
+        try await get("/me/workouts")
+    }
+
     func updateMe(_ body: AthletePatch) async throws -> AthleteDTO {
         (try await sendPatch("/me", body: body) as AthleteEnvelope).athlete
     }
@@ -612,6 +621,25 @@ nonisolated struct WorkoutOnChainResponse: Decodable {
     let txDigest: String?
     let txExplorerUrl: String?
     let sweatMinted: Int
+}
+
+/// Server's record of the current user's on-chain workouts.
+/// Returned from `GET /me/workouts`; consumed by AppState's
+/// reconcile pass to fill in digests for HealthKit workouts whose
+/// chain receipts iOS doesn't have locally.
+nonisolated struct MyWorkoutsResponse: Decodable {
+    let workouts: [MyWorkoutEntry]
+}
+
+nonisolated struct MyWorkoutEntry: Decodable, Hashable {
+    let type: String
+    /// Unix seconds (server stores as INTEGER, not millis).
+    let startDate: TimeInterval
+    let durationSeconds: TimeInterval
+    let distanceMeters: Double?
+    let txDigest: String
+    let walrusBlobId: String?
+    let sweatMinted: Int?
 }
 
 nonisolated struct IdEnvelope: Decodable { let id: String }

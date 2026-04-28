@@ -14,6 +14,7 @@ struct ProfileView: View {
     @State private var selectedAthleteId: String?
     @State private var sweatBalance: String?
     @State private var showLogoutConfirm = false
+    @State private var planForNav: FighterTrainingPlan?
 
     enum ComingSoonKind: String, Identifiable {
         case cashout, appleHealth, privacy
@@ -32,6 +33,7 @@ struct ProfileView: View {
                     lifetime
                     activityChart
                     activityCard
+                    trainingPlansSection
                     personalRecords
                     gearSection
                     trophyPreview
@@ -117,6 +119,11 @@ struct ProfileView: View {
                 set: { selectedAthleteId = $0?.id }
             )) { route in
                 AthleteProfileView(athleteId: route.id)
+            }
+            .navigationDestination(item: $planForNav) { plan in
+                if let athlete = social.athletes.first(where: { $0.id == plan.id }) {
+                    TrainingPlanView(athlete: athlete, plan: plan)
+                }
             }
             .task { await loadSweatBalance() }
             .refreshable {
@@ -805,6 +812,71 @@ struct ProfileView: View {
             .padding(Theme.Space.md)
             .background(RoundedRectangle(cornerRadius: Theme.Radius.lg).fill(Theme.Color.bgElevated))
         }
+    }
+
+    // MARK: - Training plans
+
+    /// Active training camps the user has at least started. Each row
+    /// is tappable; pushes into TrainingPlanView so the user can pick
+    /// up where they left off.
+    @ViewBuilder
+    private var trainingPlansSection: some View {
+        let started = app.startedTrainingPlans(in: social.trainingPlans)
+        if !started.isEmpty {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack {
+                    Text("Training Plans")
+                        .font(.titleM).foregroundStyle(Theme.Color.ink)
+                    Spacer()
+                    Text("\(started.count) active")
+                        .font(.system(size: 12, weight: .semibold, design: .rounded))
+                        .foregroundStyle(Theme.Color.inkSoft)
+                }
+                ForEach(started, id: \.plan.id) { entry in
+                    trainingPlanRow(plan: entry.plan, progress: entry.progress)
+                }
+            }
+            .padding(Theme.Space.md)
+            .background(RoundedRectangle(cornerRadius: Theme.Radius.lg).fill(Theme.Color.bgElevated))
+        }
+    }
+
+    private func trainingPlanRow(plan: FighterTrainingPlan, progress: UserTrainingProgress) -> some View {
+        let athlete = social.athletes.first(where: { $0.id == plan.id })
+        let fraction = progress.progressFraction(in: plan)
+        let isComplete = progress.isComplete(in: plan)
+        let currentIndex = progress.currentSessionIndex(in: plan)
+        return Button {
+            Haptics.tap()
+            planForNav = plan
+        } label: {
+            HStack(spacing: 12) {
+                if let athlete {
+                    AthleteAvatar(athlete: athlete, size: 44, showsTierRing: false)
+                } else {
+                    Circle().fill(Theme.Color.surface).frame(width: 44, height: 44)
+                }
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(plan.title)
+                        .font(.system(size: 14, weight: .bold, design: .rounded))
+                        .foregroundStyle(Theme.Color.ink)
+                        .lineLimit(1)
+                    Text(isComplete
+                         ? "Camp complete · review"
+                         : "Up next · session \(currentIndex + 1) of \(plan.sessions.count)")
+                        .font(.bodyS)
+                        .foregroundStyle(Theme.Color.inkSoft)
+                        .lineLimit(1)
+                    ProgressView(value: fraction)
+                        .tint(Theme.Color.accentDeep)
+                }
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundStyle(Theme.Color.inkFaint)
+            }
+            .padding(.vertical, 8)
+        }
+        .buttonStyle(.plain)
     }
 
     // MARK: - Menu

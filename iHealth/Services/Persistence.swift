@@ -48,6 +48,10 @@ enum AppPersistence {
         nonisolated static let cachedAthletes = "SuiSportONE.cachedAthletes.v1"
         nonisolated static let claimedTrophyKeys = "SuiSportONE.claimedTrophyKeys.v1"
         nonisolated static let sweatLedger = "SuiSportONE.sweatLedger.v1"
+        nonisolated static let communityMemberships = "SuiSportONE.communityMemberships.v1"
+        nonisolated static let trainingProgress = "SuiSportONE.trainingProgress.v1"
+        nonisolated static let workoutDigests = "SuiSportONE.workoutDigests.v1"
+        nonisolated static let alreadyLoggedWorkoutIDs = "SuiSportONE.alreadyLoggedWorkoutIDs.v1"
         nonisolated static let hasCompletedOnboarding = "SuiSportONE.hasCompletedOnboarding"
         nonisolated static let showDemoData = "SuiSportONE.showDemoData"
     }
@@ -277,6 +281,121 @@ enum AppPersistence {
 
     @MainActor static func clearSweatLedger() {
         UserDefaults.standard.removeObject(forKey: Key.sweatLedger)
+    }
+
+    // MARK: - community memberships
+    //
+    // Set of fighter athleteIds this user has unlocked the community
+    // for. Local-only for Phase 1; Phase 2 moves authoritative state
+    // to a D1 `community_memberships` table so unlocks survive a
+    // device swap.
+
+    @MainActor static func saveCommunityMemberships(_ ids: Set<String>) {
+        if let data = try? encoder.encode(Array(ids)) {
+            UserDefaults.standard.set(data, forKey: Key.communityMemberships)
+        }
+    }
+
+    @MainActor static func loadCommunityMemberships() -> Set<String> {
+        guard let data = UserDefaults.standard.data(forKey: Key.communityMemberships),
+              let ids = try? decoder.decode([String].self, from: data)
+        else { return [] }
+        return Set(ids)
+    }
+
+    @MainActor static func clearCommunityMemberships() {
+        UserDefaults.standard.removeObject(forKey: Key.communityMemberships)
+    }
+
+    // MARK: - training progress
+    //
+    // Per-fighter training-camp progress for the current user. Keyed
+    // by fighter athleteId; values carry which sessions are complete.
+    // Local-only for Phase 1 — same migration story as the community
+    // memberships when we want cross-device.
+
+    @MainActor static func saveTrainingProgress(_ progress: [String: UserTrainingProgress]) {
+        if let data = try? encoder.encode(progress) {
+            UserDefaults.standard.set(data, forKey: Key.trainingProgress)
+        }
+    }
+
+    @MainActor static func loadTrainingProgress() -> [String: UserTrainingProgress] {
+        guard let data = UserDefaults.standard.data(forKey: Key.trainingProgress),
+              let progress = try? decoder.decode([String: UserTrainingProgress].self, from: data)
+        else { return [:] }
+        return progress
+    }
+
+    @MainActor static func clearTrainingProgress() {
+        UserDefaults.standard.removeObject(forKey: Key.trainingProgress)
+    }
+
+    // MARK: - workout digest cache
+    //
+    // Per-workout `(suiTxDigest, walrusBlobId)` keyed by Workout.id
+    // (UUID). HealthKit workouts come back the same id every launch
+    // (since the UUID is stable across HealthKit reads of the same
+    // sample), so caching the chain digests here lets us re-attach
+    // them in AppState.backfillWorkouts on every launch — no more
+    // "already claimed" confusion after a relaunch.
+
+    /// Plain-Codable record so we can serialize a dictionary of
+    /// digests via JSONEncoder without fighting tuple semantics.
+    struct WorkoutDigestRecord: Codable {
+        var digest: String
+        var walrusBlobId: String?
+    }
+
+    @MainActor static func saveWorkoutDigests(_ digests: [UUID: WorkoutDigestRecord]) {
+        // UUIDs serialize as strings in JSON — convert to a string-keyed
+        // dictionary so the on-disk format is portable.
+        let stringKeyed = Dictionary(uniqueKeysWithValues:
+            digests.map { ($0.key.uuidString, $0.value) })
+        if let data = try? encoder.encode(stringKeyed) {
+            UserDefaults.standard.set(data, forKey: Key.workoutDigests)
+        }
+    }
+
+    @MainActor static func loadWorkoutDigests() -> [UUID: WorkoutDigestRecord] {
+        guard let data = UserDefaults.standard.data(forKey: Key.workoutDigests),
+              let stringKeyed = try? decoder.decode([String: WorkoutDigestRecord].self, from: data)
+        else { return [:] }
+        var out: [UUID: WorkoutDigestRecord] = [:]
+        for (k, v) in stringKeyed {
+            if let uuid = UUID(uuidString: k) { out[uuid] = v }
+        }
+        return out
+    }
+
+    @MainActor static func clearWorkoutDigests() {
+        UserDefaults.standard.removeObject(forKey: Key.workoutDigests)
+    }
+
+    // MARK: - already-logged workout ids
+    //
+    // Workouts the server has flagged as already-on-chain via a 422
+    // duplicate_submission response. We don't have their tx digests
+    // locally — but knowing they exist lets us suppress the Claim
+    // Sweat button + render a generic "Verified · package" strip so
+    // the user doesn't keep re-tapping Claim and seeing the same
+    // 422 round-trip after relaunch.
+
+    @MainActor static func saveAlreadyLoggedWorkoutIDs(_ ids: Set<UUID>) {
+        if let data = try? encoder.encode(Array(ids).map(\.uuidString)) {
+            UserDefaults.standard.set(data, forKey: Key.alreadyLoggedWorkoutIDs)
+        }
+    }
+
+    @MainActor static func loadAlreadyLoggedWorkoutIDs() -> Set<UUID> {
+        guard let data = UserDefaults.standard.data(forKey: Key.alreadyLoggedWorkoutIDs),
+              let strings = try? decoder.decode([String].self, from: data)
+        else { return [] }
+        return Set(strings.compactMap(UUID.init(uuidString:)))
+    }
+
+    @MainActor static func clearAlreadyLoggedWorkoutIDs() {
+        UserDefaults.standard.removeObject(forKey: Key.alreadyLoggedWorkoutIDs)
     }
 
     // MARK: - onboarding completion

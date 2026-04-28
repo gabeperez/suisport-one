@@ -7,10 +7,20 @@ import SwiftUI
 /// HealthKit workouts gets multiple Suiscan receipts in seconds.
 struct RecordSheet: View {
     @Environment(AppState.self) private var app
+    @Environment(SocialDataService.self) private var social
     @Environment(\.dismiss) private var dismiss
 
     @State private var showUploadPast = false
     @State private var showRecordNew = false
+    @State private var planForNav: PlanRoute?
+
+    /// Identifiable wrapper because navigationDestination(item:) needs
+    /// it; keeps the plan + the matching athlete bundled.
+    struct PlanRoute: Identifiable, Hashable {
+        let plan: FighterTrainingPlan
+        let athlete: Athlete
+        var id: String { plan.id }
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: Theme.Space.lg) {
@@ -26,6 +36,7 @@ struct RecordSheet: View {
 
             mintPastCard
             recordNewCard
+            continueCampSection
 
             Spacer(minLength: 0)
         }
@@ -47,6 +58,82 @@ struct RecordSheet: View {
         .fullScreenCover(item: $liveFor) { t in
             LiveRecorderView(type: t)
         }
+        .sheet(item: $planForNav) { route in
+            NavigationStack {
+                TrainingPlanView(athlete: route.athlete, plan: route.plan)
+            }
+            .presentationDetents([.large])
+            .presentationCornerRadius(Theme.Radius.xl)
+        }
+    }
+
+    /// "Continue [fighter]'s camp" rail — surfaces the user's started
+    /// training plans so they can pick up the next session without
+    /// navigating to the fighter's profile first.
+    @ViewBuilder
+    private var continueCampSection: some View {
+        let started = app.startedTrainingPlans(in: social.trainingPlans)
+        if !started.isEmpty {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack {
+                    Text("Continue training")
+                        .font(.system(size: 13, weight: .bold, design: .rounded))
+                        .tracking(0.06)
+                        .textCase(.uppercase)
+                        .foregroundStyle(Theme.Color.inkSoft)
+                    Spacer()
+                }
+                ForEach(started, id: \.plan.id) { entry in
+                    continueCampRow(plan: entry.plan, progress: entry.progress)
+                }
+            }
+        }
+    }
+
+    private func continueCampRow(plan: FighterTrainingPlan, progress: UserTrainingProgress) -> some View {
+        let athlete = social.athletes.first(where: { $0.id == plan.id })
+        let fraction = progress.progressFraction(in: plan)
+        let isComplete = progress.isComplete(in: plan)
+        let currentIndex = progress.currentSessionIndex(in: plan)
+        let firstName = athlete?.displayName.split(separator: " ").first.map(String.init) ?? "fighter"
+        let label = isComplete
+            ? "Review \(firstName)'s camp"
+            : "Continue \(firstName)'s camp · session \(currentIndex + 1)"
+        return Button {
+            guard let athlete else { return }
+            Haptics.tap()
+            planForNav = PlanRoute(plan: plan, athlete: athlete)
+        } label: {
+            HStack(spacing: 12) {
+                if let athlete {
+                    AthleteAvatar(athlete: athlete, size: 40, showsTierRing: false)
+                } else {
+                    Circle().fill(Theme.Color.surface).frame(width: 40, height: 40)
+                }
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(label)
+                        .font(.system(size: 13, weight: .bold, design: .rounded))
+                        .foregroundStyle(Theme.Color.ink)
+                        .lineLimit(1)
+                    ProgressView(value: fraction)
+                        .tint(Theme.Color.accentDeep)
+                }
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundStyle(Theme.Color.inkFaint)
+            }
+            .padding(12)
+            .background(
+                RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous)
+                    .fill(Theme.Color.bgElevated)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous)
+                            .strokeBorder(Theme.Color.stroke, lineWidth: 1)
+                    )
+            )
+        }
+        .buttonStyle(.plain)
+        .disabled(athlete == nil)
     }
 
     @State private var liveFor: WorkoutType?

@@ -21,6 +21,11 @@ final class SocialDataService {
                                 atRiskByDate: nil, stakedSweat: 0, stakeExpiresAt: nil, multiplier: 1.0)
     var shoes: [Shoe] = []
     var personalRecords: [PersonalRecord] = []
+    /// Per-fighter community config + posts. Lookup via athleteId.
+    /// Seeded statically — Phase 2 moves to a server-driven feed.
+    var communities: [String: FighterCommunity] = [:]
+    /// Per-fighter training camps. Same lookup pattern as communities.
+    var trainingPlans: [String: FighterTrainingPlan] = [:]
 
     // Current user's athlete card (derived, kept in sync)
     var me: Athlete?
@@ -64,6 +69,8 @@ final class SocialDataService {
         streak = Self.seedStreak(workouts: workouts)
         shoes = Self.seedShoes()
         personalRecords = PRCalculator.all(from: workouts)
+        communities = Self.seedCommunities(athletes: athletes)
+        trainingPlans = Self.seedTrainingPlans(athletes: athletes)
 
         // Auto-showcase the first three unlocked trophies so a fresh
         // profile has something to flex by default. Skip when the
@@ -1365,6 +1372,409 @@ private extension SocialDataService {
                  tone: .mint, milesUsed: 310, milesTotal: 450,
                  retired: false, startedAt: started(daysAgo: 240))
         ]
+    }
+
+    /// Per-fighter community + posts. Hand-curated voice for the
+    /// demo — Phase 2 moves authoring into a server tool. Cost is
+    /// tier-derived via FighterCommunity.unlockCost(for:).
+    static func seedCommunities(athletes: [Athlete]) -> [String: FighterCommunity] {
+        var result: [String: FighterCommunity] = [:]
+        let now = Date()
+        func ago(_ days: Int) -> Date {
+            Calendar.current.date(byAdding: .day, value: -days, to: now) ?? now
+        }
+        for a in athletes where a.verified {
+            let cost = FighterCommunity.unlockCost(for: a.tier)
+            let posts = communityPosts(forHandle: a.handle, ago: ago)
+            // Skip fighters we don't have curated posts for — better
+            // to hide the tab than show an empty community.
+            guard !posts.isEmpty else { continue }
+            result[a.id] = FighterCommunity(
+                id: a.id,
+                unlockSweatCost: cost,
+                requiredWorkoutType: workoutTypeFor(handle: a.handle),
+                requiredWorkoutCount: 5,
+                description: communityDescription(forHandle: a.handle, name: a.displayName),
+                posts: posts
+            )
+        }
+        return result
+    }
+
+    private static func workoutTypeFor(handle: String) -> String {
+        switch handle {
+        case "k1takeru":         return "striking"
+        case "yuya_wakamatsu":   return "MMA"
+        case "nadaka":           return "Muay Thai"
+        default:                 return "training"
+        }
+    }
+
+    private static func communityDescription(forHandle handle: String, name: String) -> String {
+        switch handle {
+        case "k1takeru":
+            return "Behind-the-scenes from Takeru's camps — roadwork, pad sessions, fight-week mindset, and the occasional message straight to the community."
+        case "yuya_wakamatsu":
+            return "Tribe Tokyo MMA from the inside. Pressure-striking breakdowns, level-change drills, and Yuya's notes from camp."
+        case "nadaka":
+            return "Atomweight Muay Thai from a fighter who debuted in Lumpinee at 14. Clinch tactics, Eiwa drills, and Nadaka's diary."
+        default:
+            return "Posts, training tips, and behind-the-scenes from \(name)."
+        }
+    }
+
+    private static func communityPosts(
+        forHandle handle: String,
+        ago: (Int) -> Date
+    ) -> [CommunityPost] {
+        switch handle {
+        case "k1takeru":
+            return [
+                CommunityPost(
+                    id: UUID(),
+                    kind: .message,
+                    title: "Personal message · fight week",
+                    body: "Walking into Ariake with quiet feet. Coach's advice this week: don't bring the noise, become it. Watch the video — recorded between rounds yesterday.",
+                    createdAt: ago(1),
+                    youtubeURL: "https://www.youtube.com/watch?v=jLOcGuT-JAI",
+                    isFreePreview: false
+                ),
+                CommunityPost(
+                    id: UUID(),
+                    kind: .trainingTip,
+                    title: "Roadwork as round simulation",
+                    body: "Pre-sunrise. Empty stomach. 5km tempo. The pain you feel at km 4 is the same pain you'll feel in round 3 — get used to it before fight night, not during.",
+                    createdAt: ago(3),
+                    youtubeURL: nil,
+                    isFreePreview: true
+                ),
+                CommunityPost(
+                    id: UUID(),
+                    kind: .fightWeek,
+                    title: "Camp wrap",
+                    body: "Eight weeks closed out clean. Two more sessions of pad work, then I taper. Cuts start Monday — staying off social until walkout.",
+                    createdAt: ago(6),
+                    youtubeURL: nil,
+                    isFreePreview: false
+                ),
+            ]
+        case "yuya_wakamatsu":
+            return [
+                CommunityPost(
+                    id: UUID(),
+                    kind: .message,
+                    title: "Camp update",
+                    body: "Ariake training camp is grueling but the team is sharp. Two weeks out. Tribe Tokyo always shows up — this one feels different.",
+                    createdAt: ago(2),
+                    youtubeURL: nil,
+                    isFreePreview: true
+                ),
+                CommunityPost(
+                    id: UUID(),
+                    kind: .trainingTip,
+                    title: "Hide your level change",
+                    body: "Drill the level change before the cross. Most fighters telegraph it because they reset their feet first. Anchor through the cross, then change levels off the rebound — same hip rotation, different exit.",
+                    createdAt: ago(5),
+                    youtubeURL: nil,
+                    isFreePreview: false
+                ),
+                CommunityPost(
+                    id: UUID(),
+                    kind: .ama,
+                    title: "AMA · weight cuts",
+                    body: "Q: Hardest cut you've made?  A: Going to flyweight in 2019. Lost 8 kg in three weeks. Won't do that again — the bike sessions almost broke me. These days I cut from 5 weeks out, no last-mile sauna.",
+                    createdAt: ago(8),
+                    youtubeURL: nil,
+                    isFreePreview: false
+                ),
+            ]
+        case "nadaka":
+            return [
+                CommunityPost(
+                    id: UUID(),
+                    kind: .message,
+                    title: "Birthday training",
+                    body: "Birthday session. 14 years old in Lumpinee — first pro fight. 25 today. Same fire, more sense. Eiwa Sports Gym never changes.",
+                    createdAt: ago(2),
+                    youtubeURL: nil,
+                    isFreePreview: true
+                ),
+                CommunityPost(
+                    id: UUID(),
+                    kind: .trainingTip,
+                    title: "Clinch isn't strength",
+                    body: "Clinch isn't about strength. It's about reading where their weight is, then putting yours on top of it. Drill from neutral, drill from inferior. Strength makes you tired; position makes you dangerous.",
+                    createdAt: ago(4),
+                    youtubeURL: nil,
+                    isFreePreview: false
+                ),
+            ]
+        default:
+            return []
+        }
+    }
+
+    /// Per-fighter training camps. 5 sessions each, sequenced like a
+    /// real fight-camp microcycle: skill / sparring / conditioning /
+    /// recovery. Hand-curated voice for the demo — Phase 2 moves
+    /// authoring to a server tool.
+    static func seedTrainingPlans(athletes: [Athlete]) -> [String: FighterTrainingPlan] {
+        var result: [String: FighterTrainingPlan] = [:]
+        for a in athletes where a.verified {
+            guard let plan = trainingPlanForHandle(a.handle, athleteId: a.id) else { continue }
+            result[a.id] = plan
+        }
+        return result
+    }
+
+    /// Single placeholder video used across every demo session. Phase
+    /// 2 swaps these for per-fighter, per-session footage; for the
+    /// hackathon demo a known-good URL keeps the embed safe from 404s.
+    /// (User-supplied earlier as Takeru's community post video.)
+    private static let placeholderVideoURL =
+        "https://www.youtube.com/watch?v=jLOcGuT-JAI"
+
+    private static func trainingPlanForHandle(_ handle: String, athleteId: String) -> FighterTrainingPlan? {
+        switch handle {
+        case "k1takeru":
+            return FighterTrainingPlan(
+                id: athleteId,
+                title: "Takeru's Fight Camp",
+                subtitle: "Three-division K-1 striking, distilled into 5 sessions.",
+                sessions: [
+                    TrainingSession(
+                        stableKey: "takeru-1", index: 0,
+                        title: "Pre-sunrise roadwork",
+                        summary: "5 km tempo run on empty stomach. Round-3-pain conditioning.",
+                        workoutType: "run", targetMinutes: 30, intensity: .moderate,
+                        steps: [
+                            "Warm up: 5 min easy jog + dynamic leg swings.",
+                            "Build: 5 × 30-second strides at race pace, 90s easy between.",
+                            "Tempo: 5 km at conversational-but-uncomfortable pace.",
+                            "Last km: pick up to 80% — practice closing rounds tired.",
+                            "Cool down: 5 min walk + box-breathing (4-4-4-4)."
+                        ],
+                        videoURL: placeholderVideoURL
+                    ),
+                    TrainingSession(
+                        stableKey: "takeru-2", index: 1,
+                        title: "Heavy bag rounds",
+                        summary: "Round-based heavy bag work — pressure striking with footwork and breath control.",
+                        workoutType: "striking", targetMinutes: 35, intensity: .hard,
+                        steps: [
+                            "Wraps on, gloves on. Warm shoulders with 3 minutes of skip rope or shadow.",
+                            "Set a round timer: 3 minutes work, 30 seconds rest. Plan for 6 rounds.",
+                            "Round 1-2: jab-cross repetition. Stay tall, exhale on every punch.",
+                            "Round 3-4: add the low kick at the end of every combo. Work both sides.",
+                            "Round 5-6: free flow. Vary tempo — slow-fast-slow inside each round.",
+                            "Reset between rounds: shake out the arms, breathe through the nose.",
+                            "Cool down: 30 lateral slips around the bag, then stretch the lats and hips."
+                        ],
+                        videoURL: "https://www.youtube.com/watch?v=AGQi8lVISoI"
+                    ),
+                    TrainingSession(
+                        stableKey: "takeru-3", index: 2,
+                        title: "Live sparring",
+                        summary: "5 × 3-minute rounds. Walk out without a mark.",
+                        workoutType: "striking", targetMinutes: 25, intensity: .peak,
+                        steps: [
+                            "Glove up: 16oz minimum, mouthguard, shin pads.",
+                            "Round 1-2: technical sparring at 50% — clean exchanges only.",
+                            "Round 3: 70% pace, feet active, cut angles.",
+                            "Round 4-5: full pace, partner picks up the heat.",
+                            "After: 10 min light flow rolling, no power."
+                        ],
+                        videoURL: placeholderVideoURL
+                    ),
+                    TrainingSession(
+                        stableKey: "takeru-4", index: 3,
+                        title: "Conditioning circuit",
+                        summary: "Engine work — sprints, kettlebells, jump rope. Six rounds.",
+                        workoutType: "hiit", targetMinutes: 30, intensity: .hard,
+                        steps: [
+                            "Warm up: 5 min easy bike or jog.",
+                            "Round (4 min on, 1 min off) × 6:",
+                            "  • 60s burpees · 60s KB swings · 60s jump rope · 60s mountain climbers",
+                            "Hold steady through round 4. Earn round 5-6.",
+                            "Finisher: 50 squats unbroken, then walk it out."
+                        ],
+                        videoURL: placeholderVideoURL
+                    ),
+                    TrainingSession(
+                        stableKey: "takeru-5", index: 4,
+                        title: "Recovery + mobility",
+                        summary: "Sauna, foam roll, hip mobility. Cut-week move.",
+                        workoutType: "recovery", targetMinutes: 25, intensity: .easy,
+                        steps: [
+                            "Foam roll: quads, glutes, lats — 60s each, both sides.",
+                            "Hip 90/90: 8 reps each side, 3 sets, slow.",
+                            "Cossack squats: 10 reps × 3 — open the groin.",
+                            "Box breathing: 4 min, eyes closed.",
+                            "Sauna or hot bath: 15 min if available."
+                        ],
+                        videoURL: placeholderVideoURL
+                    ),
+                ]
+            )
+        case "yuya_wakamatsu":
+            return FighterTrainingPlan(
+                id: athleteId,
+                title: "Yuya's Tribe Tokyo Camp",
+                subtitle: "MMA pressure-striking + grappling, 5 sessions.",
+                sessions: [
+                    TrainingSession(
+                        stableKey: "yuya-1", index: 0,
+                        title: "Striking pad work",
+                        summary: "Hide the level change inside the cross. Six rounds.",
+                        workoutType: "striking", targetMinutes: 30, intensity: .hard,
+                        steps: [
+                            "Skip rope: 2 × 3-min rounds.",
+                            "Shadow: 2 rounds with level changes every 4-5 strikes.",
+                            "Pads: 6 × 3-min. Combo: jab-cross-LEVEL CHANGE-cross.",
+                            "Anchor through the cross — don't reset feet first.",
+                            "Round 5-6: coach calls level change at random.",
+                            "Cool down: 2 min easy bag, deep breaths."
+                        ],
+                        videoURL: placeholderVideoURL
+                    ),
+                    TrainingSession(
+                        stableKey: "yuya-2", index: 1,
+                        title: "Grappling drills",
+                        summary: "Wrestling shots from neutral, scrambles, double-leg defense.",
+                        workoutType: "grappling", targetMinutes: 30, intensity: .hard,
+                        steps: [
+                            "Warm up: bear crawls, sprawls, hip escapes — 5 min.",
+                            "Drill: double-leg shot, 25 reps each side.",
+                            "Drill: sprawl-and-spin defense, 20 reps each side.",
+                            "Live: 4 × 2-min positional rounds from neutral.",
+                            "Cool down: 5 min light technical flow."
+                        ],
+                        videoURL: placeholderVideoURL
+                    ),
+                    TrainingSession(
+                        stableKey: "yuya-3", index: 2,
+                        title: "MMA sparring",
+                        summary: "5 × 3-min mixed rounds. Standup to clinch to ground.",
+                        workoutType: "mma", targetMinutes: 25, intensity: .peak,
+                        steps: [
+                            "Glove up: MMA gloves, mouthguard, shin pads.",
+                            "Round 1-2: stand-up only, 60% pace.",
+                            "Round 3: stand-up to clinch transitions allowed.",
+                            "Round 4-5: full MMA. Take it down if the shot's clean.",
+                            "After: 5 min cool-down flow rolling, breathe slow."
+                        ],
+                        videoURL: placeholderVideoURL
+                    ),
+                    TrainingSession(
+                        stableKey: "yuya-4", index: 3,
+                        title: "Conditioning roadwork",
+                        summary: "6 km tempo, last km at race pace.",
+                        workoutType: "run", targetMinutes: 35, intensity: .moderate,
+                        steps: [
+                            "5 min easy warm-up jog.",
+                            "5 km steady tempo — should feel like fight-week pace.",
+                            "Final km: pick up to 85%. Stay tall, drive arms.",
+                            "5 min cool-down walk + breath work.",
+                            "Hydrate immediately on return."
+                        ],
+                        videoURL: placeholderVideoURL
+                    ),
+                    TrainingSession(
+                        stableKey: "yuya-5", index: 4,
+                        title: "Recovery session",
+                        summary: "Mobility + light technical drilling. Brain off, body on.",
+                        workoutType: "recovery", targetMinutes: 20, intensity: .easy,
+                        steps: [
+                            "Foam roll: 5 min full-body.",
+                            "10 min light shadow work — keep heart rate low.",
+                            "5 min stretch: hips, shoulders, lats.",
+                            "Box breathing 4 min — close the day."
+                        ],
+                        videoURL: placeholderVideoURL
+                    ),
+                ]
+            )
+        case "nadaka":
+            return FighterTrainingPlan(
+                id: athleteId,
+                title: "Nadaka's Eiwa Camp",
+                subtitle: "Atomweight Muay Thai with the Lumpinee mindset, 5 sessions.",
+                sessions: [
+                    TrainingSession(
+                        stableKey: "nadaka-1", index: 0,
+                        title: "Clinch drills",
+                        summary: "Read where their weight is, put yours on top of it.",
+                        workoutType: "grappling", targetMinutes: 25, intensity: .hard,
+                        steps: [
+                            "Warm up: neck rolls, shoulder pulls — 5 min.",
+                            "Drill: hand-fight to inside-tie, 20 reps each side.",
+                            "Drill: knee-from-clinch, 15 reps each side.",
+                            "Drill: clinch sweep off pummel, 10 reps each side.",
+                            "Live: 3 × 2-min clinch rounds, technical pace."
+                        ],
+                        videoURL: placeholderVideoURL
+                    ),
+                    TrainingSession(
+                        stableKey: "nadaka-2", index: 1,
+                        title: "Pad rounds",
+                        summary: "Long combos with knee finishes.",
+                        workoutType: "striking", targetMinutes: 30, intensity: .hard,
+                        steps: [
+                            "Skip rope: 3 × 3-min rounds.",
+                            "Shadow: 2 rounds, knee-up footwork.",
+                            "Pads: 6 × 3-min. Combo: jab-cross-elbow-knee.",
+                            "Round 4+: cross-step into clinch knee.",
+                            "Cool down: 50 alternating push kicks, breathe."
+                        ],
+                        videoURL: placeholderVideoURL
+                    ),
+                    TrainingSession(
+                        stableKey: "nadaka-3", index: 2,
+                        title: "Light sparring",
+                        summary: "Cleaner exchanges, no headhunting.",
+                        workoutType: "striking", targetMinutes: 25, intensity: .peak,
+                        steps: [
+                            "Glove up: 14-16oz, no shin pads, control intent.",
+                            "5 × 3-min sparring rounds at 50-60%.",
+                            "Focus: setup the knee with hands first.",
+                            "If a clinch happens, drill the break — don't dwell.",
+                            "Walk out smiling. No one wins, you both train."
+                        ],
+                        videoURL: placeholderVideoURL
+                    ),
+                    TrainingSession(
+                        stableKey: "nadaka-4", index: 3,
+                        title: "Roadwork",
+                        summary: "Quiet streets, quiet mind. 5 km nose-breathing.",
+                        workoutType: "run", targetMinutes: 30, intensity: .moderate,
+                        steps: [
+                            "Choose a route you know. Phone on Do Not Disturb.",
+                            "5 min easy warm-up.",
+                            "5 km easy pace — nose-breathe the entire run.",
+                            "If you can't nose-breathe, slow down.",
+                            "Cool down: 5 min walk, no headphones."
+                        ],
+                        videoURL: placeholderVideoURL
+                    ),
+                    TrainingSession(
+                        stableKey: "nadaka-5", index: 4,
+                        title: "Recovery + stretch",
+                        summary: "Hot bath, deep stretch, journal one thing learned.",
+                        workoutType: "recovery", targetMinutes: 20, intensity: .easy,
+                        steps: [
+                            "Hot bath or sauna: 10 min if available.",
+                            "Hip flexor stretch: 60s each side, 3 sets.",
+                            "Pigeon stretch: 90s each side.",
+                            "Lats + thoracic spine: 60s each.",
+                            "Journal: write down one thing you learned this camp."
+                        ],
+                        videoURL: placeholderVideoURL
+                    ),
+                ]
+            )
+        default:
+            return nil
+        }
     }
 
     static func seedStreak(workouts: [Workout]) -> Streak {

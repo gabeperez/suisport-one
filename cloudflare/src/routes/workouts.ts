@@ -321,6 +321,52 @@ function workoutTypeCode(t: string): number {
  *      a profile, and persist the operator address so subsequent
  *      submits always pick the same keypair regardless of later
  *      changes to SUI_OPERATOR_KEYS. */
+// Returns this athlete's on-chain workouts so iOS can reconcile its
+// local digest cache after a fresh install or device swap. Without
+// this endpoint, an iOS app that's never seen a workout's mint
+// receipt has no way to know the workout is already on chain — it
+// shows "Claim Sweat", server returns 422 duplicate, and the user
+// gets a confusing error.
+//
+// Limited to 200 most-recent rows so a power user with thousands
+// of workouts doesn't blow up the response. Filters out rows whose
+// chain step never landed (`sui_tx_digest IS NULL` or
+// `'pending_*'`) — those aren't useful for iOS reconciliation.
+workouts.get("/me/workouts", async (c) => {
+    const id = c.get("athleteId")
+        ?? (c.env.ENVIRONMENT !== "production" ? "0xdemo_me" : null);
+    if (!id) return c.json({ error: "unauthorized" }, 401);
+    const rows = await c.env.DB.prepare(
+        `SELECT type, start_date, duration_seconds, distance_meters,
+                sui_tx_digest, walrus_blob_id, sweat_minted
+         FROM workouts
+         WHERE athlete_id = ?
+           AND sui_tx_digest IS NOT NULL
+           AND sui_tx_digest NOT LIKE 'pending_%'
+         ORDER BY start_date DESC
+         LIMIT 200`
+    ).bind(id).all<{
+        type: string;
+        start_date: number;
+        duration_seconds: number;
+        distance_meters: number | null;
+        sui_tx_digest: string;
+        walrus_blob_id: string | null;
+        sweat_minted: number | null;
+    }>();
+    return c.json({
+        workouts: (rows.results ?? []).map(r => ({
+            type: r.type,
+            startDate: r.start_date,
+            durationSeconds: r.duration_seconds,
+            distanceMeters: r.distance_meters,
+            txDigest: r.sui_tx_digest,
+            walrusBlobId: r.walrus_blob_id,
+            sweatMinted: r.sweat_minted,
+        })),
+    });
+});
+
 export async function resolveOperatorAndProfile(
     env: Env,
     athleteId: string

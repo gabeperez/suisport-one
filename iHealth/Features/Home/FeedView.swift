@@ -20,9 +20,17 @@ struct FeedView: View {
     @State private var reportingItem: FeedItem?
     @State private var sweatBalance: SweatBalanceResponse?
     @State private var showSweatBreakdown = false
+    @State private var showFightersGrid = false
 
-    enum FeedFilter: String, CaseIterable { case following, discover
-        var title: String { self == .following ? "Following" : "Discover" }
+    enum FeedFilter: String, CaseIterable {
+        case following, discover, fighters
+        var title: String {
+            switch self {
+            case .following: return "Following"
+            case .discover: return "Discover"
+            case .fighters: return "Fighters"
+            }
+        }
     }
 
     var body: some View {
@@ -61,6 +69,22 @@ struct FeedView: View {
             }
             .task { await loadSweatBalance() }
             .background(Theme.Color.bg.ignoresSafeArea())
+            .sheet(isPresented: $showFightersGrid) {
+                FightersGridSheet(
+                    fighters: fighterRoster,
+                    onPick: { athlete in
+                        showFightersGrid = false
+                        // Tiny delay so the sheet's dismissal animation
+                        // doesn't fight the navigation push.
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) {
+                            selectedAthlete = athlete
+                        }
+                    }
+                )
+                .presentationDetents([.large])
+                .presentationDragIndicator(.visible)
+                .presentationCornerRadius(Theme.Radius.xl)
+            }
             .sheet(isPresented: $showSweatBreakdown) {
                 // Fall back to the workout-derived sum when the
                 // ledger hasn't seen any mints yet (first launch
@@ -583,6 +607,9 @@ struct FeedView: View {
         if social.feed.isEmpty {
             emptyState
         } else {
+            if filter == .fighters {
+                fightersRail
+            }
             let items = filteredFeed
             ForEach(Array(items.enumerated()), id: \.element.id) { idx, item in
                 FeedCard(
@@ -623,7 +650,19 @@ struct FeedView: View {
     }
 
     private var filteredFeed: [FeedItem] {
-        let base = filter == .following ? social.feed : social.feed.shuffled()
+        let base: [FeedItem]
+        switch filter {
+        case .following:
+            base = social.feed
+        case .discover:
+            base = social.feed.shuffled()
+        case .fighters:
+            // Only verified athletes (the seeded ONE Championship
+            // roster carries verified=true). Drops the user's own
+            // workouts + any non-fighter activity, leaving a pure
+            // fighter feed.
+            base = social.feed.filter { $0.athlete.verified }
+        }
         switch sort {
         case .recent:
             return base.sorted { $0.workout.startDate > $1.workout.startDate }
@@ -631,6 +670,75 @@ struct FeedView: View {
             return base.sorted { $0.kudosCount > $1.kudosCount }
         case .closestFriends:
             return base
+        }
+    }
+
+    /// Verified athletes only — drives the Fighters rail + the
+    /// "View all" grid sheet. Sorts by tier then followers so the
+    /// roster's most prominent fighters lead.
+    private var fighterRoster: [Athlete] {
+        social.athletes
+            .filter { $0.verified }
+            .sorted { lhs, rhs in
+                if lhs.tier != rhs.tier { return lhs.tier.threshold > rhs.tier.threshold }
+                return lhs.followers > rhs.followers
+            }
+    }
+
+    /// Header rail shown above the Fighters feed — horizontal scroll
+    /// of fighter avatars + a "View all" tap target into the full
+    /// roster grid.
+    @ViewBuilder
+    private var fightersRail: some View {
+        if !fighterRoster.isEmpty {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack {
+                    Text("ONE Championship roster")
+                        .font(.system(size: 13, weight: .bold, design: .rounded))
+                        .tracking(0.06)
+                        .foregroundStyle(Theme.Color.inkSoft)
+                    Spacer()
+                    Button {
+                        Haptics.tap()
+                        showFightersGrid = true
+                    } label: {
+                        HStack(spacing: 3) {
+                            Text("View all")
+                                .font(.system(size: 12, weight: .semibold, design: .rounded))
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 10, weight: .bold))
+                        }
+                        .foregroundStyle(Theme.Color.accentDeep)
+                    }
+                    .buttonStyle(.plain)
+                }
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 12) {
+                        ForEach(fighterRoster.prefix(12)) { fighter in
+                            Button {
+                                Haptics.tap()
+                                selectedAthlete = fighter
+                            } label: {
+                                VStack(spacing: 6) {
+                                    AthleteAvatar(athlete: fighter, size: 56)
+                                    Text(fighter.displayName)
+                                        .font(.system(size: 11, weight: .semibold, design: .rounded))
+                                        .foregroundStyle(Theme.Color.ink)
+                                        .lineLimit(1)
+                                        .frame(width: 72)
+                                }
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    .padding(.vertical, 2)
+                }
+            }
+            .padding(Theme.Space.md)
+            .background(
+                RoundedRectangle(cornerRadius: Theme.Radius.lg, style: .continuous)
+                    .fill(Theme.Color.bgElevated)
+            )
         }
     }
 

@@ -70,7 +70,9 @@ final class WalletConnectBridge {
             // forever if they never return from the wallet.
             let timer = Task { [weak self] in
                 try? await Task.sleep(nanoseconds: 120_000_000_000)
-                await self?.timeout(challengeId: challenge.challengeId)
+                // Task inherits @MainActor from the enclosing
+                // @MainActor class — same-actor call, no await needed.
+                self?.timeout(challengeId: challenge.challengeId)
             }
             pending = PendingAuth(
                 challengeId: challenge.challengeId,
@@ -136,6 +138,18 @@ final class WalletConnectBridge {
         case .success(let v): p.continuation.resume(returning: v)
         case .failure(let e): p.continuation.resume(throwing: e)
         }
+    }
+
+    /// Caller-side cancel: when the user navigates away from the
+    /// auth flow before Slush returns, resume the pending continuation
+    /// with `Cancelled` so the awaiting Task in AppState completes
+    /// and `isAuthInFlight` flips back to false. Without this, backing
+    /// out of Slush leaves AuthScreen showing a stuck spinner forever.
+    func cancelPending() {
+        guard let p = pending else { return }
+        p.fallbackTimer?.cancel()
+        pending = nil
+        p.continuation.resume(throwing: Cancelled())
     }
 
     private func timeout(challengeId: String) {

@@ -5,6 +5,7 @@ struct WorkoutDetailView: View {
     let feedItemId: UUID
 
     @Environment(SocialDataService.self) private var social
+    @Environment(AppState.self) private var app
     @Environment(\.dismiss) private var dismiss
     @State private var showShare = false
     @State private var commentText = ""
@@ -13,6 +14,9 @@ struct WorkoutDetailView: View {
     @State private var showDeleteConfirm = false
     @State private var isDeleting = false
     @State private var deleteError: String?
+    @State private var claimError: String?
+    @State private var mintRequest: MintingCelebrationRequest?
+    @State private var mintReceipt: MintReceipt?
 
     var body: some View {
         ScrollView {
@@ -21,7 +25,7 @@ struct WorkoutDetailView: View {
                     header(item)
                     map(item)
                     statsGrid(item)
-                    verifiedStrip
+                    verifiedStrip(for: item)
                     captionBlock(item)
                     kudosStrip(item)
                     commentsList(item)
@@ -70,7 +74,7 @@ struct WorkoutDetailView: View {
                 Task { await deleteCurrent() }
             }
         } message: {
-            Text("This removes the workout and its feed post. Proof + points already minted on-chain will stay, but the post won't be visible.")
+            Text("This removes the workout and its feed post. Points and verified records already saved will stay, but the post won't be visible.")
         }
         .alert("Couldn't delete", isPresented: Binding(
             get: { deleteError != nil },
@@ -82,6 +86,28 @@ struct WorkoutDetailView: View {
         }
         .navigationDestination(item: $selectedAthlete) { a in
             AthleteProfileView(athleteId: a.id)
+        }
+        .fullScreenCover(item: $mintRequest) { req in
+            MintingCelebrationView(
+                workout: req.workout,
+                athlete: social.me,
+                perform: { try await app.mintWorkout(req.workout) },
+                onComplete: { result in
+                    req.onResult(result)
+                    mintRequest = nil
+                }
+            )
+        }
+        // After the celebration dismisses, hand the user a deliberate
+        // receipt sheet with Suiscan + Walrus + Move-package links.
+        // Gives them an unmissable moment to click through and
+        // verify on chain.
+        .sheet(item: $mintReceipt) { receipt in
+            MintSuccessSheet(receipt: receipt) {
+                mintReceipt = nil
+            }
+            .presentationDetents([.large])
+            .presentationCornerRadius(Theme.Radius.xl)
         }
     }
 
@@ -175,7 +201,7 @@ struct WorkoutDetailView: View {
             }
             statBlock(label: "Points", value: "\(item.workout.points)", unit: "SP")
             if item.tippedSweat > 0 {
-                statBlock(label: "Tips", value: "\(item.tippedSweat)", unit: "SWEAT")
+                statBlock(label: "Tips", value: "\(item.tippedSweat)", unit: "Sweat")
             }
         }
     }
@@ -206,29 +232,233 @@ struct WorkoutDetailView: View {
 
     // MARK: - Verified strip
 
-    private var verifiedStrip: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "checkmark.seal.fill")
-                .font(.system(size: 16, weight: .bold))
-                .foregroundStyle(Theme.Color.accentDeep)
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Verified workout")
-                    .font(.system(size: 14, weight: .semibold, design: .rounded))
-                    .foregroundStyle(Theme.Color.ink)
-                Text("Attested via Apple Health + device signature")
-                    .font(.system(size: 12))
-                    .foregroundStyle(Theme.Color.inkSoft)
-            }
-            Spacer()
-            Text("on Sui")
-                .font(.labelMono)
-                .foregroundStyle(Theme.Color.inkFaint)
+    /// Suiscan link to the SuiSport ONE Move package — used as the
+    /// fallback when a feed item isn't on chain (seed fixtures, pending
+    /// retries). Real workouts deep-link to their own tx digest.
+    private static let packageExplorerURL = URL(
+        string: "https://suiscan.xyz/testnet/object/0x15c33f76fba3bc10a327d9792c7948e1eefd0162a13e7a0ac4774d7b8fec2b2c"
+    )!
+
+    /// Per-workout Suiscan tx URL when the workout has a real on-chain
+    /// mint. Falls back to the package object page (canonical "where
+    /// these mints come from") for fixtures and pending mints. Each
+    /// real workout deep-links to its own unique transaction.
+    private func verifiedExplorerURL(for item: FeedItem) -> URL {
+        if let digest = item.workout.suiTxDigest, !digest.isEmpty {
+            return URL(string: "https://suiscan.xyz/testnet/tx/\(digest)") ?? Self.packageExplorerURL
         }
-        .padding(12)
-        .background(
-            RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous)
-                .fill(Theme.Color.accent.opacity(0.12))
+        return Self.packageExplorerURL
+    }
+
+    @ViewBuilder
+    private func verifiedStrip(for item: FeedItem) -> some View {
+        let hasDigest = (item.workout.suiTxDigest?.isEmpty == false)
+        // Server already told us this workout exists on chain (via
+        // a 422 duplicate_submission response on a prior claim
+        // attempt) — we just don't have the specific tx digest
+        // locally yet. Render the verified strip pointing at the
+        // package object as a fallback so the user doesn't see
+        // "Claim Sweat" → 422 → "already claimed" looping.
+        let alreadyLogged = app.alreadyLoggedWorkoutIDs.contains(item.workout.id)
+        if hasDigest || alreadyLogged {
+            onChainStrip(for: item)
+        } else if isOwnWorkout {
+            claimSweatButton(for: item)
+        }
+        // Off-chain workouts that aren't yours render nothing — no
+        // misleading "Verified" claim when there's no on-chain proof.
+    }
+
+    private func onChainStrip(for item: FeedItem) -> some View {
+        // Subtitle copy adapts to whether we have a specific tx
+        // digest (specific proof) or only a "server says it's on
+        // chain" signal (package fallback).
+        let hasDigest = (item.workout.suiTxDigest?.isEmpty == false)
+        let subtitle = hasDigest
+            ? "Tap to see the proof"
+            : "On chain · tap to see the contract"
+        return Link(destination: verifiedExplorerURL(for: item)) {
+            HStack(spacing: 10) {
+                Image(systemName: "checkmark.seal.fill")
+                    .font(.system(size: 16, weight: .bold))
+                    .foregroundStyle(Theme.Color.accentDeep)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Verified workout")
+                        .font(.system(size: 14, weight: .semibold, design: .rounded))
+                        .foregroundStyle(Theme.Color.ink)
+                    Text(subtitle)
+                        .font(.system(size: 12))
+                        .foregroundStyle(Theme.Color.inkSoft)
+                }
+                Spacer()
+                HStack(spacing: 4) {
+                    Text("on Sui")
+                        .font(.labelMono)
+                    Image(systemName: "arrow.up.right.square")
+                        .font(.system(size: 11, weight: .semibold))
+                }
+                .foregroundStyle(Theme.Color.inkFaint)
+            }
+            .padding(12)
+            .background(
+                RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous)
+                    .fill(Theme.Color.accent.opacity(0.12))
+            )
+        }
+        .buttonStyle(.plain)
+        .accessibilityHint("Opens this workout's transaction on Suiscan")
+    }
+
+    /// Trigger-based on-chain mint for the user's own off-chain
+    /// workouts (HealthKit auto-syncs land here). Tapping submits to
+    /// the worker, awards Sweat, and flips the item to the on-chain
+    /// strip on success.
+    private func claimSweatButton(for item: FeedItem) -> some View {
+        Button {
+            startClaim(for: item)
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: "bolt.fill")
+                    .font(.system(size: 16, weight: .bold))
+                    .foregroundStyle(Theme.Color.accentInk)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Claim Sweat")
+                        .font(.system(size: 15, weight: .bold, design: .rounded))
+                        .foregroundStyle(Theme.Color.accentInk)
+                    Text("Earn \(item.workout.points) Sweat on Sui")
+                        .font(.system(size: 12, weight: .semibold, design: .rounded))
+                        .foregroundStyle(Theme.Color.accentInk.opacity(0.8))
+                }
+                Spacer()
+                Image(systemName: "arrow.right")
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundStyle(Theme.Color.accentInk)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
+            .frame(maxWidth: .infinity)
+            .background(
+                RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous)
+                    .fill(Theme.Color.accent)
+            )
+        }
+        .buttonStyle(.plain)
+        .disabled(mintRequest != nil)
+        .alert("Couldn't claim Sweat",
+               isPresented: Binding(
+                   get: { claimError != nil },
+                   set: { if !$0 { claimError = nil } }
+               )) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(claimError ?? "")
+        }
+    }
+
+    /// Kick the celebration view into life. The mint network call
+    /// runs inside MintingCelebrationView (so the animation can drive
+    /// off it); we just provide the workout + the success/error
+    /// handler.
+    private func startClaim(for item: FeedItem) {
+        guard mintRequest == nil else { return }
+        mintRequest = MintingCelebrationRequest(
+            workout: item.workout,
+            onResult: { result in
+                handleClaimResult(item: item, result: result)
+            }
         )
+    }
+
+    @MainActor
+    private func handleClaimResult(
+        item: FeedItem,
+        result: Result<SubmitWorkoutResponse, Error>
+    ) {
+        switch result {
+        case .success(let resp):
+            let digest = resp.txDigest
+            if !digest.hasPrefix("pending_") {
+                social.markFeedItemMinted(
+                    workoutId: item.workout.id,
+                    digest: digest,
+                    walrusBlobId: resp.walrusBlobId
+                )
+                app.recordMintReward(resp.pointsMinted)
+                // Slight delay so the celebration cover finishes its
+                // dismiss animation before the receipt sheet slides
+                // up — otherwise SwiftUI races the two transitions.
+                let pointsMinted = resp.pointsMinted
+                let walrusBlobId = resp.walrusBlobId
+                // Use the feed item's existing title if non-empty,
+                // else fall back to the workout type's display name.
+                let workoutTitle = item.title.isEmpty
+                    ? item.workout.type.title
+                    : item.title
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
+                    mintReceipt = MintReceipt(
+                        pointsMinted: pointsMinted,
+                        txDigest: digest,
+                        walrusBlobId: walrusBlobId,
+                        workoutTitle: workoutTitle
+                    )
+                }
+            } else {
+                let pipeline = resp.attestation?.pipeline ?? "unknown"
+                claimError = "Saved, but the on-chain step is still pending (\(pipeline)). Try again in a moment."
+                Haptics.warn()
+            }
+        case .failure(let err):
+            if let api = err as? APIError,
+               case .server(422, let body) = api,
+               let reason = parseClaimRejectReason(body) {
+                if reason == "duplicate_submission" || reason == "duplicate" {
+                    app.alreadyLoggedWorkoutIDs.insert(item.workout.id)
+                    claimError = "This workout was already claimed."
+                } else {
+                    claimError = "Rejected by server: \(reason)"
+                }
+            } else if let api = err as? APIError {
+                claimError = describeClaimError(api)
+            } else {
+                claimError = err.localizedDescription
+            }
+            Haptics.warn()
+        }
+    }
+
+    private func describeClaimError(_ err: APIError) -> String {
+        switch err {
+        case .notImplemented: return "Claiming isn't available yet."
+        case .transport(let e): return e.localizedDescription
+        case .server(let code, let msg):
+            // Server returns Zod-validation JSON for 400-class
+            // rejects. Show a friendly summary instead of dumping
+            // the raw issue array on the user.
+            if let friendly = friendlyValidationMessage(body: msg) {
+                return friendly
+            }
+            return msg.isEmpty ? "Server error (\(code))" : msg
+        }
+    }
+
+    /// Best-effort `reason` extraction from a 422 body like
+    /// `{"error":"rejected","reason":"duplicate_submission"}`.
+    private func parseClaimRejectReason(_ body: String) -> String? {
+        guard let data = body.data(using: .utf8),
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else { return nil }
+        return obj["reason"] as? String
+    }
+
+    /// Translate a Zod `validation_error` body into a single-line
+    /// human message. Returns nil for anything else so the caller
+    /// can fall through to its default phrasing.
+    private func friendlyValidationMessage(body: String) -> String? {
+        guard let data = body.data(using: .utf8),
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              (obj["error"] as? String) == "validation_error"
+        else { return nil }
+        return "This workout's data is out of range and can't be saved on Sui. The HealthKit reading may be a corrupted aggregate — try a different workout."
     }
 
     // MARK: - Caption
@@ -294,6 +524,12 @@ struct WorkoutDetailView: View {
                     SocialDataService.shared.sendTip(on: item.id, amount: 5)
                 }
             }
+            // Honest disclosure for the demo: tipping today is a local
+            // ledger only. On-chain transfers between users land
+            // post-mainnet alongside the sponsored zkLogin txn path.
+            Text("Tips are local for this demo. On-chain transfers land on mainnet.")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(Theme.Color.inkFaint)
         }
         .padding(Theme.Space.md)
         .background(RoundedRectangle(cornerRadius: Theme.Radius.lg, style: .continuous)
@@ -548,9 +784,18 @@ struct StreakSheet: View {
             PrimaryButton(title: "Stake \(stake) Sweat",
                           icon: "lock.fill",
                           tint: Theme.Color.ink, fg: Theme.Color.inkInverse) {
-                SocialDataService.shared.stakeStreak(amount: stake)
+                let amount = stake
                 Haptics.success()
+                // Dismiss immediately, run the mutation on the next
+                // runloop tick. Mutating @Observable state inside a
+                // sheet's action block + dismissing in the same tick
+                // can wedge SwiftUI's sheet animator on real devices
+                // — was reproducible as the "freeze on Stake X Sweat"
+                // bug in QA.
                 dismiss()
+                Task { @MainActor in
+                    SocialDataService.shared.stakeStreak(amount: amount)
+                }
             }
             GhostButton(title: "Not now") { dismiss() }
         }

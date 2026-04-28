@@ -1,13 +1,18 @@
 import SwiftUI
 
 struct AthleteProfileView: View {
+    enum ProfileTab: Hashable { case activity, community }
+
     let athleteId: String
     @Environment(SocialDataService.self) private var social
+    @Environment(AppState.self) private var app
     @State private var isFollowing: Bool = false
     @State private var selectedItem: FeedItem?
     @State private var selectedChallenge: Challenge?
     @State private var showEdit = false
     @State private var showShare = false
+    @State private var tab: ProfileTab = .activity
+    @State private var planForNav: FighterTrainingPlan?
 
     private var athlete: Athlete? {
         if let me = social.me, me.id == athleteId { return me }
@@ -21,10 +26,20 @@ struct AthleteProfileView: View {
                     header(a)
                     stats(a)
                     actionRow(a)
-                    segmentsBadges(a)
-                    programsSection(a)
-                    trophiesPreview
-                    recentActivities
+                    if hasCommunity(a) {
+                        tabSelector
+                    }
+                    if tab == .activity || !hasCommunity(a) {
+                        if let plan = social.trainingPlans[a.id] {
+                            trainingCampCard(athlete: a, plan: plan)
+                        }
+                        segmentsBadges(a)
+                        programsSection(a)
+                        trophiesPreview
+                        recentActivities
+                    } else if let community = social.communities[a.id] {
+                        CommunityTab(athlete: a, community: community)
+                    }
                     Color.clear.frame(height: 80)
                 }
                 .padding(.horizontal, Theme.Space.md)
@@ -41,6 +56,11 @@ struct AthleteProfileView: View {
         .navigationDestination(item: $selectedChallenge) { c in
             ChallengeDetailView(challengeId: c.id)
         }
+        .navigationDestination(item: $planForNav) { plan in
+            if let a = athlete {
+                TrainingPlanView(athlete: a, plan: plan)
+            }
+        }
         .sheet(isPresented: $showEdit) { EditProfileSheet() }
         .sheet(isPresented: $showShare) {
             ShareSheet(items: [shareText])
@@ -53,6 +73,107 @@ struct AthleteProfileView: View {
     }
 
     private var isMe: Bool { social.me?.id == athleteId }
+
+    private func hasCommunity(_ a: Athlete) -> Bool {
+        social.communities[a.id] != nil
+    }
+
+    /// Segmented control between Activity and Community. Only shown
+    /// for fighters with a curated community feed (verified athletes
+    /// in the seeded ONE Championship roster).
+    private var tabSelector: some View {
+        HStack(spacing: 8) {
+            tabPill(.activity, title: "Activity")
+            tabPill(.community, title: "Community")
+        }
+        .padding(4)
+        .frame(maxWidth: .infinity)
+        .background(
+            RoundedRectangle(cornerRadius: Theme.Radius.lg, style: .continuous)
+                .fill(Theme.Color.bgElevated)
+        )
+    }
+
+    /// Training Camp entry card — shown above the existing Programs
+    /// strip on the fighter's profile. Drives into TrainingPlanView
+    /// where the user works through the sessions.
+    private func trainingCampCard(athlete: Athlete, plan: FighterTrainingPlan) -> some View {
+        let progress = app.progress(for: plan)
+        let fraction = progress.progressFraction(in: plan)
+        let currentIndex = progress.currentSessionIndex(in: plan)
+        let isComplete = progress.isComplete(in: plan)
+        let started = !progress.completedSessionKeys.isEmpty || progress.lastCompletedAt != nil
+        let ctaTitle: String = {
+            if isComplete   { return "Camp complete · review" }
+            if started      { return "Continue camp · session \(currentIndex + 1)" }
+            return "Start \(athlete.displayName.split(separator: " ").first.map(String.init) ?? "the")'s camp"
+        }()
+        return Button {
+            Haptics.tap()
+            planForNav = plan
+        } label: {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(spacing: 8) {
+                    Image(systemName: "figure.strengthtraining.traditional")
+                        .font(.system(size: 12, weight: .bold))
+                    Text("Training Camp")
+                        .font(.system(size: 11, weight: .bold, design: .rounded))
+                        .tracking(0.08)
+                        .textCase(.uppercase)
+                }
+                .foregroundStyle(Theme.Color.inkFaint)
+                Text(plan.title)
+                    .font(.titleM)
+                    .foregroundStyle(Theme.Color.ink)
+                Text(plan.subtitle)
+                    .font(.bodyS)
+                    .foregroundStyle(Theme.Color.inkSoft)
+                    .lineLimit(2)
+                ProgressView(value: fraction)
+                    .tint(Theme.Color.accentDeep)
+                Text("\(progress.completedSessionKeys.count) of \(plan.sessions.count) sessions complete")
+                    .font(.system(size: 11, weight: .semibold, design: .rounded))
+                    .foregroundStyle(Theme.Color.inkSoft)
+                HStack(spacing: 6) {
+                    Text(ctaTitle)
+                    Image(systemName: "arrow.right")
+                }
+                .font(.system(size: 13, weight: .bold, design: .rounded))
+                .foregroundStyle(Theme.Color.accentInk)
+                .padding(.horizontal, 14).padding(.vertical, 10)
+                .background(Capsule().fill(Theme.Color.accent))
+            }
+            .padding(Theme.Space.md)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: Theme.Radius.lg, style: .continuous)
+                    .fill(Theme.Color.bgElevated)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: Theme.Radius.lg, style: .continuous)
+                            .strokeBorder(Theme.Color.stroke, lineWidth: 1)
+                    )
+            )
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func tabPill(_ t: ProfileTab, title: String) -> some View {
+        Button {
+            Haptics.select()
+            withAnimation(Theme.Motion.snap) { tab = t }
+        } label: {
+            Text(title)
+                .font(.system(size: 14, weight: .bold, design: .rounded))
+                .foregroundStyle(tab == t ? Theme.Color.inkInverse : Theme.Color.ink)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 9)
+                .background(
+                    RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous)
+                        .fill(tab == t ? Theme.Color.ink : Color.clear)
+                )
+        }
+        .buttonStyle(.plain)
+    }
 
     // MARK: - Header
 
@@ -215,7 +336,7 @@ struct AthleteProfileView: View {
             if isMe {
                 smallStat(icon: "trophy.fill",
                           label: "Trophies",
-                          value: "\(social.trophies.filter { !$0.isLocked }.count)",
+                          value: "\(social.trophies.filter { $0.isUnlocked }.count)",
                           tint: Theme.Color.hot,
                           isPlaceholder: false)
             } else {

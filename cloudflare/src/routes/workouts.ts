@@ -115,14 +115,17 @@ workouts.post("/", async (c) => {
         ).bind(walrusResult.blobId, workoutId).run();
     }
 
-    // 4–5. On-chain mint. Only if all the required config is set AND
-    //      we have a Walrus blob id (the contract takes it as a param).
+    // 4–5. On-chain mint. Runs whenever Sui is configured. Walrus
+    //      upload is best-effort — when it fails (testnet flakiness),
+    //      we still mint to chain with a placeholder blob id so the
+    //      headline "verified on Sui" lands. A reconciler cron sweeps
+    //      walrus-pending workouts later to backfill the real blob.
     let txDigest: string = `pending_${workoutId}`;
     let suiObjectId: string | null = null;
     let sweatMinted = 0;
     let pipelineStatus: string = "stubbed";
 
-    if (hasSuiConfig(c.env) && walrusResult.blobId) {
+    if (hasSuiConfig(c.env)) {
         try {
             // Resolve the operator: if this athlete already has a
             // profile on-chain we MUST sign with the keypair that
@@ -155,15 +158,26 @@ workouts.post("/", async (c) => {
             });
             const finalReward = computeFinalReward(components);
 
+            // Use the real Walrus blob id if upload succeeded; fall
+            // back to a placeholder string the reconciler can detect
+            // and replace on a successful re-upload pass.
+            const blobIdForChain = walrusResult.blobId
+                ?? `walrus_pending_${workoutId}`;
+            const walrusBlobIdBytes = new TextEncoder().encode(blobIdForChain);
+
             const onChain = await submitWorkoutOnChain(c.env, {
                 athlete: athleteId,
                 profileObjectId: profileId,
                 workoutType: workoutTypeCode(body.type),
-                timestampMs: BigInt(body.startDate * 1000),
+                // iOS sends body.startDate as a Double from
+                // Date.timeIntervalSince1970 which carries fractional
+                // seconds. BigInt rejects non-integers. Floor to
+                // millisecond integer before constructing.
+                timestampMs: BigInt(Math.floor(body.startDate * 1000)),
                 durationS: Math.floor(body.durationSeconds),
                 distanceM: Math.floor(body.distanceMeters ?? 0),
                 calories: Math.floor(body.energyKcal ?? 0),
-                walrusBlobId: new TextEncoder().encode(walrusResult.blobId),
+                walrusBlobId: walrusBlobIdBytes,
                 baseReward: components.baseReward,
                 prBonus: components.prBonus,
                 challengeBonus: components.challengeBonus,
@@ -173,27 +187,54 @@ workouts.post("/", async (c) => {
             }, operator);
             txDigest = onChain.txDigest;
             sweatMinted = Number(finalReward);
-            pipelineStatus = "executed";
+            // pipelineStatus tracks whether Walrus also landed. Both
+            // states mean the user got their Sweat — only the proof
+            // archive differs, and the reconciler will fix that
+            // asynchronously.
+            pipelineStatus = walrusResult.blobId
+                ? "executed"
+                : "executed_walrus_pending";
             await c.env.DB.prepare(
                 `UPDATE workouts
                  SET sui_tx_digest = ?, verified = 1, sweat_minted = ?
                  WHERE id = ?`
             ).bind(txDigest, sweatMinted, workoutId).run();
+            // Bump the lifetime-credited counter on the athlete row.
+            // Wrapped so the migration-not-applied case (column missing)
+            // can't bring down the mint flow.
+            try {
+                const creditedDisplay = Math.floor(Number(finalReward) / 1_000_000_000);
+                if (creditedDisplay > 0) {
+                    await c.env.DB.prepare(
+                        `UPDATE athletes
+                         SET sweat_credited = sweat_credited + ?
+                         WHERE id = ?`
+                    ).bind(creditedDisplay, athleteId).run();
+                }
+            } catch { /* migration 0013 not applied yet — silent no-op */ }
         } catch (err) {
             // On-chain step failed; keep the workout in D1 with verified=0.
             // Indexer will NOT retry — user can resubmit if needed.
             pipelineStatus = `sui_failed:${err instanceof Error ? err.message : "unknown"}`;
         }
-    } else if (!hasSuiConfig(c.env)) {
+    } else {
         pipelineStatus = "sui_not_configured";
-    } else if (!walrusResult.blobId) {
-        pipelineStatus = "walrus_upload_failed";
     }
+
+    // pointsMinted is what the client should display + animate. When the
+    // on-chain mint succeeded, this is the *post-formula* amount (after
+    // bonuses, decay, per-tx ceiling) in display units — i.e. exactly
+    // what landed in the user's wallet on Sui. When the on-chain step
+    // didn't run (stub mode) or failed, fall back to the client's
+    // declared base so the UI doesn't go dark.
+    const sweatMintedDisplay = sweatMinted > 0
+        ? Math.floor(sweatMinted / 1_000_000_000)
+        : body.points;
 
     return c.json({
         workoutId,
         feedItemId: feedId,
-        pointsMinted: body.points,
+        pointsMinted: sweatMintedDisplay,
         txDigest,
         suiObjectId,
         walrusBlobId: walrusResult.blobId,
@@ -280,6 +321,52 @@ function workoutTypeCode(t: string): number {
  *      a profile, and persist the operator address so subsequent
  *      submits always pick the same keypair regardless of later
  *      changes to SUI_OPERATOR_KEYS. */
+// Returns this athlete's on-chain workouts so iOS can reconcile its
+// local digest cache after a fresh install or device swap. Without
+// this endpoint, an iOS app that's never seen a workout's mint
+// receipt has no way to know the workout is already on chain — it
+// shows "Claim Sweat", server returns 422 duplicate, and the user
+// gets a confusing error.
+//
+// Limited to 200 most-recent rows so a power user with thousands
+// of workouts doesn't blow up the response. Filters out rows whose
+// chain step never landed (`sui_tx_digest IS NULL` or
+// `'pending_*'`) — those aren't useful for iOS reconciliation.
+workouts.get("/me/workouts", async (c) => {
+    const id = c.get("athleteId")
+        ?? (c.env.ENVIRONMENT !== "production" ? "0xdemo_me" : null);
+    if (!id) return c.json({ error: "unauthorized" }, 401);
+    const rows = await c.env.DB.prepare(
+        `SELECT type, start_date, duration_seconds, distance_meters,
+                sui_tx_digest, walrus_blob_id, sweat_minted
+         FROM workouts
+         WHERE athlete_id = ?
+           AND sui_tx_digest IS NOT NULL
+           AND sui_tx_digest NOT LIKE 'pending_%'
+         ORDER BY start_date DESC
+         LIMIT 200`
+    ).bind(id).all<{
+        type: string;
+        start_date: number;
+        duration_seconds: number;
+        distance_meters: number | null;
+        sui_tx_digest: string;
+        walrus_blob_id: string | null;
+        sweat_minted: number | null;
+    }>();
+    return c.json({
+        workouts: (rows.results ?? []).map(r => ({
+            type: r.type,
+            startDate: r.start_date,
+            durationSeconds: r.duration_seconds,
+            distanceMeters: r.distance_meters,
+            txDigest: r.sui_tx_digest,
+            walrusBlobId: r.walrus_blob_id,
+            sweatMinted: r.sweat_minted,
+        })),
+    });
+});
+
 export async function resolveOperatorAndProfile(
     env: Env,
     athleteId: string

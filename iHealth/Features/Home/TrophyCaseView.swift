@@ -28,14 +28,25 @@ struct TrophyCaseView: View {
     }
 
     private var headline: some View {
-        let unlocked = social.trophies.filter { !$0.isLocked }.count
+        let unlocked = social.trophies.filter { $0.isUnlocked }.count
+        let claimable = social.trophies.filter { $0.isClaimable }.count
         let total = social.trophies.count
         return VStack(alignment: .leading, spacing: 4) {
             Text("\(unlocked) of \(total) unlocked")
                 .font(.displayS)
                 .foregroundStyle(Theme.Color.ink)
-            Text("Soulbound to your SuiSport ONE profile. They're yours, forever.")
-                .font(.bodyM).foregroundStyle(Theme.Color.inkSoft)
+            if claimable > 0 {
+                HStack(spacing: 4) {
+                    Image(systemName: "sparkles")
+                        .font(.system(size: 11, weight: .bold))
+                    Text("\(claimable) ready to claim")
+                        .font(.system(size: 13, weight: .semibold, design: .rounded))
+                }
+                .foregroundStyle(Theme.Color.accentDeep)
+            } else {
+                Text("Soulbound to your SuiSport ONE profile. They're yours, forever.")
+                    .font(.bodyM).foregroundStyle(Theme.Color.inkSoft)
+            }
         }
     }
 
@@ -141,6 +152,23 @@ struct TrophyCard: View {
                     Spacer()
                 }
                 .padding(6)
+            } else if trophy.isClaimable {
+                VStack {
+                    HStack {
+                        Spacer()
+                        HStack(spacing: 3) {
+                            Image(systemName: "sparkles")
+                                .font(.system(size: 9, weight: .bold))
+                            Text("Claim")
+                                .font(.system(size: 10, weight: .bold, design: .rounded))
+                        }
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 7).padding(.vertical, 3)
+                        .background(Capsule().fill(Color.black.opacity(0.45)))
+                    }
+                    Spacer()
+                }
+                .padding(6)
             }
         }
     }
@@ -185,6 +213,21 @@ struct TrophyChip: View {
                 Image(systemName: trophy.icon)
                     .font(.system(size: 26, weight: .bold))
                     .foregroundStyle(trophy.isLocked ? Theme.Color.inkFaint : .white)
+                if trophy.isClaimable {
+                    VStack {
+                        HStack {
+                            Spacer()
+                            Image(systemName: "sparkles")
+                                .font(.system(size: 9, weight: .bold))
+                                .foregroundStyle(.white)
+                                .padding(4)
+                                .background(Circle().fill(Color.black.opacity(0.45)))
+                        }
+                        Spacer()
+                    }
+                    .frame(width: 64, height: 64)
+                    .padding(2)
+                }
             }
             Text(trophy.title)
                 .font(.system(size: 11, weight: .semibold, design: .rounded))
@@ -199,7 +242,10 @@ struct TrophyChip: View {
 
 struct TrophyDetailSheet: View {
     let trophy: Trophy
+    @Environment(AppState.self) private var app
+    @Environment(SocialDataService.self) private var social
     @State private var showShare = false
+    @State private var claimError: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: Theme.Space.md) {
@@ -210,21 +256,132 @@ struct TrophyDetailSheet: View {
             }
             description
             Spacer()
-            if !trophy.isLocked {
-                PrimaryButton(title: "Share", icon: "square.and.arrow.up",
-                              tint: Theme.Color.ink, fg: Theme.Color.inkInverse) {
-                    showShare = true
-                }
-            }
+            footerButton
         }
         .padding(Theme.Space.lg)
         .sheet(isPresented: $showShare) {
             ShareSheet(items: [shareText])
         }
+        .alert("Couldn't claim trophy",
+               isPresented: Binding(
+                   get: { claimError != nil },
+                   set: { if !$0 { claimError = nil } }
+               )) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(claimError ?? "")
+        }
+    }
+
+    @ViewBuilder
+    private var footerButton: some View {
+        if trophy.isUnlocked {
+            PrimaryButton(title: "Share", icon: "square.and.arrow.up",
+                          tint: Theme.Color.ink, fg: Theme.Color.inkInverse) {
+                showShare = true
+            }
+        } else if trophy.isClaimable {
+            PrimaryButton(title: "Claim trophy",
+                          icon: "sparkles",
+                          tint: Theme.Color.accent,
+                          fg: Theme.Color.accentInk) {
+                claim()
+            }
+            Text("Saves the qualifying workout on Sui (if it isn't already) and adds the trophy to your profile.")
+                .font(.system(size: 11))
+                .foregroundStyle(Theme.Color.inkFaint)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: .infinity)
+        }
+    }
+
+    @MainActor
+    private func claim() {
+        Haptics.thud()
+        guard let workoutId = trophy.qualifyingWorkoutId,
+              let workout = app.workouts.first(where: { $0.id == workoutId })
+        else {
+            claimError = "Couldn't find the qualifying workout. Try refreshing."
+            Haptics.warn()
+            return
+        }
+        // Trophy unlocks instantly — Apple Health is already proof
+        // the user did the work. The chain step (if needed) runs
+        // quietly in the background; the user doesn't have to wait
+        // on it to enjoy the trophy.
+        social.markTrophyClaimed(stableKey: trophy.stableKey)
+        Haptics.success()
+
+        // If the qualifying workout is already on chain, we're done.
+        if let digest = workout.suiTxDigest, !digest.isEmpty { return }
+
+        // Otherwise mint it in the background. We're fire-and-forget
+        // here — failures don't roll back the trophy. If the chain
+        // step fails the user can still trigger a retry from the
+        // workout-detail "Claim Sweat" button, which has the
+        // celebration animation + visible error handling.
+        Task { await backgroundMint(workout) }
+    }
+
+    private func backgroundMint(_ workout: Workout) async {
+        do {
+            let resp = try await app.mintWorkout(workout)
+            if !resp.txDigest.hasPrefix("pending_") {
+                social.markFeedItemMinted(
+                    workoutId: workout.id,
+                    digest: resp.txDigest,
+                    walrusBlobId: resp.walrusBlobId
+                )
+                app.recordMintReward(resp.pointsMinted)
+            }
+        } catch let api as APIError {
+            // Server says it's already in D1 even though we don't
+            // have the digest locally — mark already-logged so the
+            // upload sheet hides this row from the selectable list.
+            if case .server(422, let body) = api,
+               let reason = parseRejectReason(body),
+               reason == "duplicate_submission" || reason == "duplicate" {
+                app.alreadyLoggedWorkoutIDs.insert(workout.id)
+            }
+            // Anything else: stay silent. The trophy is already on
+            // the user's profile; they can retry the chain step
+            // from the workout detail view if they care.
+        } catch {
+            // Same — silent.
+        }
+    }
+
+    private func describeAPIError(_ err: APIError) -> String {
+        switch err {
+        case .notImplemented: return "Claiming isn't available yet."
+        case .transport(let e): return e.localizedDescription
+        case .server(let code, let msg):
+            if let friendly = friendlyValidationMessage(body: msg) {
+                return friendly
+            }
+            return msg.isEmpty ? "Server error (\(code))" : msg
+        }
+    }
+
+    private func parseRejectReason(_ body: String) -> String? {
+        guard let data = body.data(using: .utf8),
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else { return nil }
+        return obj["reason"] as? String
+    }
+
+    /// Translate a Zod `validation_error` body into a single-line
+    /// human message instead of dumping the raw issue array.
+    private func friendlyValidationMessage(body: String) -> String? {
+        guard let data = body.data(using: .utf8),
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              (obj["error"] as? String) == "validation_error"
+        else { return nil }
+        return "This workout's data is out of range and can't be saved on Sui. The HealthKit reading may be a corrupted aggregate — try a different workout."
     }
 
     private var shareText: String {
-        "I just unlocked \(trophy.title) on SuiSport ONE — \(trophy.subtitle). Soulbound and on-chain. suisport.app"
+        "I just unlocked \(trophy.title) on SuiSport ONE — \(trophy.subtitle). Verified on Sui. suisport.app"
     }
 
     private var hero: some View {

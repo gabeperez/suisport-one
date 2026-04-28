@@ -3,7 +3,9 @@ import SwiftUI
 struct ChallengeDetailView: View {
     let challengeId: UUID
     @Environment(SocialDataService.self) private var social
+    @Environment(AppState.self) private var app
     @State private var confirmJoin = false
+    @State private var insufficientFunds = false
     @State private var selectedAthlete: Athlete?
 
     private var challenge: Challenge? {
@@ -46,15 +48,49 @@ struct ChallengeDetailView: View {
         .safeAreaInset(edge: .bottom) {
             if let c = challenge { bottomCTA(c) }
         }
-        .alert("Stake to join", isPresented: $confirmJoin, presenting: challenge) { c in
-            Button("Stake \(c.stakeSweat) Sweat") {
-                SocialDataService.shared.toggleChallengeJoin(c.id)
-                Haptics.success()
+        .alert(app.showDemoData ? "Join challenge · demo mode" : "Stake to join",
+               isPresented: $confirmJoin, presenting: challenge) { c in
+            Button(app.showDemoData
+                   ? "Join free (demo)"
+                   : "Stake \(c.stakeSweat) Sweat") {
+                performJoin(c)
             }
             Button("Cancel", role: .cancel) {}
         } message: { c in
-            Text("You'll stake \(c.stakeSweat) Sweat. If you complete the challenge you keep your stake and share the prize pool. If you don't, your stake goes to the pot.")
+            if app.showDemoData {
+                Text("Demo toggle is on — joining is free and no Sweat will be debited. Your join state stays even after you turn demo mode off.")
+            } else {
+                Text("You'll stake \(c.stakeSweat) Sweat. If you complete the challenge you keep your stake and share the prize pool. If you don't, your stake goes to the pot.")
+            }
         }
+        .alert("Not enough Sweat", isPresented: $insufficientFunds) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            if let c = challenge {
+                Text("You need \(c.stakeSweat) Sweat to stake into this challenge. Earn more by claiming workouts on chain.")
+            }
+        }
+    }
+
+    @MainActor
+    private func performJoin(_ c: Challenge) {
+        // Demo bypass: free join, no Sweat debit. Same persistence
+        // outcome as a real stake — challenge.isJoined flips and the
+        // user can mark sessions complete.
+        if app.showDemoData {
+            social.toggleChallengeJoin(c.id)
+            Haptics.success()
+            return
+        }
+        guard app.sweatPoints.total >= c.stakeSweat else {
+            insufficientFunds = true
+            Haptics.warn()
+            return
+        }
+        app.sweatPoints.total = max(0, app.sweatPoints.total - c.stakeSweat)
+        app.recordRedemption(c.stakeSweat)
+        social.toggleChallengeJoin(c.id)
+        Haptics.success()
     }
 
     // MARK: - Designer strip
@@ -123,7 +159,7 @@ struct ChallengeDetailView: View {
         let tone = (designer?.avatarTone ?? c.hero)
         VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Text("What you'll mint")
+                Text("What you'll earn")
                     .font(.titleM).foregroundStyle(Theme.Color.ink)
                 Spacer()
                 Text("SOULBOUND")
@@ -511,20 +547,36 @@ struct ChallengeDetailView: View {
                                   icon: "checkmark",
                                   tint: Theme.Color.accent,
                                   fg: Theme.Color.accentInk) {
-                        SocialDataService.shared.toggleChallengeJoin(c.id)
+                        // Leaving = refund the stake (skip in demo
+                        // mode since no real stake was charged).
+                        if !app.showDemoData && c.stakeSweat > 0 {
+                            app.sweatPoints.total += c.stakeSweat
+                        }
+                        social.toggleChallengeJoin(c.id)
                     }
                 } else {
-                    PrimaryButton(title: c.stakeSweat > 0 ? "Stake and join" : "Join",
+                    PrimaryButton(title: ctaTitle(c),
                                   icon: c.stakeSweat > 0 ? "lock.fill" : "plus",
                                   tint: Theme.Color.ink, fg: Theme.Color.inkInverse) {
                         if c.stakeSweat > 0 { confirmJoin = true }
-                        else { SocialDataService.shared.toggleChallengeJoin(c.id) }
+                        else { social.toggleChallengeJoin(c.id) }
                     }
                 }
             }
-            .padding(Theme.Space.md)
+            .padding(.horizontal, Theme.Space.md)
+            .padding(.top, 12)
+            // Clear the floating tab bar in RootTabView (~80pt total
+            // including safe-area bottom). Without this, the CTA sits
+            // hidden behind the tab capsule and looks broken.
+            .padding(.bottom, 90)
         }
         .background(.ultraThinMaterial)
+    }
+
+    private func ctaTitle(_ c: Challenge) -> String {
+        if c.stakeSweat == 0 { return "Join" }
+        if app.showDemoData { return "Join free · demo mode" }
+        return "Stake \(c.stakeSweat) Sweat"
     }
 
     private func daysText(_ c: Challenge) -> String {

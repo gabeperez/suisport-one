@@ -40,6 +40,10 @@ struct AuthScreen: View {
 
                     trustRow
 
+                    if let err = app.lastAuthError {
+                        authErrorBanner(err)
+                    }
+
                     Spacer().frame(height: Theme.Space.md)
                 }
                 .padding(.horizontal, Theme.Space.lg)
@@ -65,6 +69,8 @@ struct AuthScreen: View {
                 walletSignInButton
                 otherWalletLink
 
+                ageAndTermsDisclosure
+
                 Button {
                     Haptics.tap()
                     showHowItWorks = true
@@ -78,6 +84,20 @@ struct AuthScreen: View {
             }
         }
         .sheet(isPresented: $showHowItWorks) { howItWorksSheet }
+        .onAppear {
+            // Defensive: a previous wallet sign-in attempt may have
+            // been abandoned. Make sure we don't reappear with a
+            // stuck spinner and a leaked continuation.
+            if app.isAuthInFlight {
+                app.cancelPendingAuth()
+            }
+        }
+        .onDisappear {
+            // User navigated away mid-flow (back button, app sheet
+            // dismiss, etc). Cancel pending wallet auth so the next
+            // entry starts clean.
+            app.cancelPendingAuth()
+        }
     }
 
     @ViewBuilder
@@ -167,9 +187,22 @@ struct AuthScreen: View {
     }
 
     private var inFlightButton: some View {
-        PrimaryButton(title: "Setting things up…", isLoading: true,
-                      tint: Theme.Color.ink, fg: Theme.Color.inkInverse) {}
-            .shimmer()
+        VStack(spacing: 8) {
+            PrimaryButton(title: "Setting things up…", isLoading: true,
+                          tint: Theme.Color.ink, fg: Theme.Color.inkInverse) {}
+                .shimmer()
+            Button {
+                Haptics.tap()
+                app.cancelPendingAuth()
+            } label: {
+                Text("Cancel")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(Theme.Color.inkFaint)
+                    .underline()
+                    .padding(.vertical, 4)
+            }
+            .buttonStyle(.plain)
+        }
     }
 
     /// HIG-styled Sign in with Apple button. Uses our own `AuthService` flow.
@@ -195,6 +228,47 @@ struct AuthScreen: View {
             .frame(height: 54)
         }
         .buttonStyle(AppleButtonStyle(colorScheme: colorScheme))
+    }
+
+    /// Single line replacing the dedicated AgeGate screen. Strava /
+    /// Nike Run Club / every consumer fitness app does it this way —
+    /// the sign-in itself is the affirmation, with the legal anchor
+    /// sitting underneath for the 13+ HealthKit requirement.
+    private var ageAndTermsDisclosure: some View {
+        Text("By continuing, you confirm you're 13+ and accept our Terms & Privacy.")
+            .font(.system(size: 11, weight: .medium))
+            .foregroundStyle(Theme.Color.inkFaint)
+            .multilineTextAlignment(.center)
+            .frame(maxWidth: .infinity)
+            .padding(.top, 6)
+    }
+
+    private func authErrorBanner(_ message: String) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: 14, weight: .bold))
+                .foregroundStyle(Theme.Color.hot)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Sign-in failed")
+                    .font(.system(size: 13, weight: .bold, design: .rounded))
+                    .foregroundStyle(Theme.Color.ink)
+                Text(message)
+                    .font(.system(size: 12))
+                    .foregroundStyle(Theme.Color.inkSoft)
+                    .multilineTextAlignment(.leading)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous)
+                .fill(Theme.Color.hot.opacity(0.12))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous)
+                .strokeBorder(Theme.Color.hot.opacity(0.3), lineWidth: 1)
+        )
     }
 
     private var trustRow: some View {
@@ -234,10 +308,10 @@ struct AuthScreen: View {
                 "Pick a fighter on the ONE Championship roster, run their official camp — striking, grappling, conditioning, recovery.",
                 icon: "figure.martial.arts")
             row("Verified by your Apple Watch",
-                "Every session is signed by App Attest, blob-stored on Walrus, minted on Sui. No ads. No surveys.",
+                "Every session is signed on your device and saved with a verified receipt. No ads. No surveys.",
                 icon: "checkmark.seal.fill")
             row("Earn rewards from the fighter",
-                "Soulbound trophies signed by the fighter on completion. Plus Sweat Points and sponsor drops.",
+                "Soulbound trophies signed by the fighter on completion. Plus Sweat and sponsor drops.",
                 icon: "trophy.fill")
 
             Spacer()

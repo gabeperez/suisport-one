@@ -93,12 +93,11 @@ export async function retryPendingWorkoutsTick(env: Env): Promise<RetryTickResul
     let skipped_no_walrus = 0;
 
     for (const row of rows.results ?? []) {
-        if (!row.walrus_blob_id) {
-            // Without a blob id the contract rejects the call. Skip —
-            // the media upload retry is a separate concern.
-            skipped_no_walrus++;
-            continue;
-        }
+        // Walrus is optional. If the original POST failed Walrus
+        // upload, mint with a placeholder blob id — the chain step
+        // is the headline; walrus_reconcile.ts backfills the real
+        // blob id later. Mirrors the path in routes/workouts.ts.
+        const walrusBlobIdString = row.walrus_blob_id ?? `walrus_pending_${row.id}`;
         try {
             // Share the same resolver as the POST path. If the
             // profile was never minted (POST failed before the mint
@@ -125,11 +124,13 @@ export async function retryPendingWorkoutsTick(env: Env): Promise<RetryTickResul
                 athlete: row.athlete_id,
                 profileObjectId: profileId,
                 workoutType: workoutTypeCode(row.type),
-                timestampMs: BigInt(row.start_date * 1000),
+                // start_date can be REAL in D1 (fractional seconds
+                // preserved from iOS). BigInt requires integer.
+                timestampMs: BigInt(Math.floor(row.start_date * 1000)),
                 durationS: Math.floor(row.duration_seconds),
                 distanceM: Math.floor(row.distance_meters ?? 0),
                 calories: Math.floor(row.energy_kcal ?? 0),
-                walrusBlobId: new TextEncoder().encode(row.walrus_blob_id),
+                walrusBlobId: new TextEncoder().encode(walrusBlobIdString),
                 baseReward: components.baseReward,
                 prBonus: components.prBonus,
                 challengeBonus: components.challengeBonus,
@@ -145,6 +146,19 @@ export async function retryPendingWorkoutsTick(env: Env): Promise<RetryTickResul
             ).bind(
                 onChain.txDigest, Number(finalReward), now, row.id
             ).run();
+            // Mirror the live-mint path: bump the lifetime-credited
+            // counter for this athlete. Silent no-op if migration 0013
+            // hasn't been applied (column missing).
+            try {
+                const creditedDisplay = Math.floor(Number(finalReward) / 1_000_000_000);
+                if (creditedDisplay > 0) {
+                    await env.DB.prepare(
+                        `UPDATE athletes
+                         SET sweat_credited = sweat_credited + ?
+                         WHERE id = ?`
+                    ).bind(creditedDisplay, row.athlete_id).run();
+                }
+            } catch { /* migration 0013 not applied — silent no-op */ }
             succeeded++;
         } catch (err) {
             const msg = err instanceof Error ? err.message : String(err);

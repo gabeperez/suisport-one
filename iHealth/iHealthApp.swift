@@ -5,6 +5,7 @@ import UIKit
 struct iHealthApp: App {
     @State private var appState = AppState()
     @State private var social = SocialDataService.shared
+    @Environment(\.scenePhase) private var scenePhase
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
     var body: some Scene {
@@ -13,6 +14,26 @@ struct iHealthApp: App {
                 .environment(appState)
                 .environment(social)
                 .preferredColorScheme(nil)
+        }
+        .onChange(of: scenePhase) { _, newPhase in
+            // Refresh HealthKit history + the social feed whenever the
+            // app returns to the foreground. Critical for the live
+            // demo flow: user starts a watch workout, backgrounds the
+            // app to present, finishes the workout, then returns —
+            // without this hook, the new workout doesn't appear in
+            // the feed until a force-quit + reopen.
+            guard newPhase == .active else { return }
+            Task { @MainActor in
+                if appState.currentUser != nil {
+                    await appState.backfillWorkouts { _ in }
+                    // Pull server-known digests so any workouts the
+                    // user minted on another device (or before this
+                    // install) show as verified instead of falsely
+                    // offering "Claim Sweat" again.
+                    await appState.reconcileWorkoutsFromServer()
+                }
+                await social.refresh()
+            }
         }
     }
 }

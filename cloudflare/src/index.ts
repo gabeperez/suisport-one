@@ -14,6 +14,7 @@ import { sui } from "./routes/sui.js";
 import { rewards } from "./routes/rewards.js";
 import { indexTick } from "./indexer.js";
 import { retryPendingWorkoutsTick } from "./onchain_retry.js";
+import { reconcileWalrusPendingTick } from "./walrus_reconcile.js";
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -95,12 +96,15 @@ app.onError((err, c) => {
 });
 
 // Scheduled: runs every minute (see wrangler.toml [triggers]). Does
-// two things in parallel so a slow one doesn't starve the other:
-//   1. indexTick        — poll Sui events into D1 (read path)
-//   2. retryPendingWorkoutsTick — retry failed submit_workout calls
-//                                  whose D1 row is stuck on
-//                                  sui_tx_digest LIKE 'pending_%'
-// Both no-op gracefully when SUI_* secrets aren't configured.
+// three things in parallel so a slow one doesn't starve the others:
+//   1. indexTick                  — poll Sui events into D1 (read path)
+//   2. retryPendingWorkoutsTick   — retry failed submit_workout calls
+//                                   whose D1 row is stuck on
+//                                   sui_tx_digest LIKE 'pending_%'
+//   3. reconcileWalrusPendingTick — retry Walrus uploads for chain-
+//                                   verified workouts whose D1
+//                                   walrus_blob_id is still NULL
+// All no-op gracefully when SUI_* / Walrus secrets aren't configured.
 export default {
     fetch: app.fetch,
     async scheduled(
@@ -118,6 +122,17 @@ export default {
             }
         }).catch((err) => {
             console.warn("onchain_retry tick failed", err);
+        }));
+        // 3. walrusReconcileTick — re-attempt Walrus uploads for
+        //    workouts that landed on chain with a placeholder blob
+        //    (Walrus testnet was 503ing). Patches D1 walrus_blob_id
+        //    so iOS's "Permanent record" deep link resolves.
+        ctx.waitUntil(reconcileWalrusPendingTick(env).then((r) => {
+            if (r.succeeded > 0 || r.failed > 0) {
+                console.log(`walrus_reconcile: succeeded=${r.succeeded} failed=${r.failed} attempted=${r.attempted}`);
+            }
+        }).catch((err) => {
+            console.warn("walrus_reconcile tick failed", err);
         }));
     },
 };

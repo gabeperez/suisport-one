@@ -63,7 +63,7 @@ struct BackfillScreen: View {
                         .font(.numberL)
                         .foregroundStyle(Theme.Color.ink)
                         .contentTransition(.numericText())
-                    Text("Sweat Points")
+                    Text("Sweat")
                         .font(.labelBold)
                         .foregroundStyle(Theme.Color.inkSoft)
                 }

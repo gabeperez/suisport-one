@@ -122,10 +122,8 @@ SuiSport ONE/
 ├── PITCH.md                   ← 5-min pitch outline (problem → demo → impact)
 ├── DEMO.md                    ← 3-min demo video script + shot list
 ├── docs/
-<<<<<<< HEAD
-=======
 │   ├── MAINNET_AUDIT.md       ← readiness punch list before mainnet flip
->>>>>>> 0ef0e11 (docs: tighten README + ancillary docs)
+│   ├── MAINNET_MIGRATION.md   ← phase-by-phase plan to take testnet to mainnet
 │   ├── ON_CHAIN_STRATEGY.md   ← operator fanout, retries, costs
 │   └── SEAL_INTEGRATION.md    ← deferred-Seal plan
 ├── iHealth/                   ← SwiftUI app

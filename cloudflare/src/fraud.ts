@@ -94,8 +94,19 @@ export async function vetWorkout(
         }
     }
 
-    // 4. Points sanity (prevents client from claiming arbitrary minting).
-    const maxPointsByMinute = 4;
+    // 4. Points sanity. Loose floor for "obviously absurd" claims
+    //    (1 min = 1,000,000 points) without false-rejecting real
+    //    pro-level workouts. The iOS rate sheet pays 60 pts/km +
+    //    2 pts/min for cycling, so a hard 40 km hour scores ~42
+    //    pts/min legitimately, and a 50 km/h pro effort hits ~52.
+    //    100 covers every realistic case.
+    //
+    //    Note: this cap doesn't gate the on-chain mint amount —
+    //    that's recomputed server-side from the validated duration
+    //    + distance, then capped at MAX_REWARD_PER_TX (5000 Sweat)
+    //    by the Move contract. This vetter cap only controls
+    //    whether the workout is accepted into the feed at all.
+    const maxPointsByMinute = 100;
     const cap = Math.ceil(w.durationSeconds / 60) * maxPointsByMinute;
     if (w.points > cap) {
         await logSuspect(env, athleteId, "points_inflated",
@@ -112,7 +123,9 @@ export async function vetWorkout(
     ).bind(athleteId, hash).first();
     if (dup) {
         await logSuspect(env, athleteId, "duplicate_submission", w);
-        return { ok: false, reason: "duplicate" };
+        // Keep the reason string in sync with the suspect log so
+        // iOS can map a single canonical name to friendly copy.
+        return { ok: false, reason: "duplicate_submission" };
     }
 
     return { ok: true, canonicalHash: hash };

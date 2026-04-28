@@ -8,11 +8,13 @@ struct ProfileView: View {
     @State private var showShare = false
     @State private var showAddShoe = false
     @State private var showRewards = false
+    @State private var showActivity = false
     @State private var pendingComingSoon: ComingSoonKind?
     @State private var selectedTrophy: Trophy?
     @State private var selectedAthleteId: String?
     @State private var sweatBalance: String?
     @State private var showLogoutConfirm = false
+    @State private var planForNav: FighterTrainingPlan?
 
     enum ComingSoonKind: String, Identifiable {
         case cashout, appleHealth, privacy
@@ -30,6 +32,8 @@ struct ProfileView: View {
                     streakRow
                     lifetime
                     activityChart
+                    activityCard
+                    trainingPlansSection
                     personalRecords
                     gearSection
                     trophyPreview
@@ -50,7 +54,7 @@ struct ProfileView: View {
                             showShare = true
                         } label: { Label("Share profile", systemImage: "square.and.arrow.up") }
                         Button { showRewards = true } label: {
-                            Label("Redeem points", systemImage: "gift.fill")
+                            Label("Redeem Sweat", systemImage: "gift.fill")
                         }
                         Button { showAdvanced = true } label: {
                             Label("Advanced", systemImage: "terminal")
@@ -72,6 +76,11 @@ struct ProfileView: View {
             .sheet(isPresented: $showEdit) { EditProfileSheet() }
             .sheet(isPresented: $showAddShoe) { AddShoeSheet() }
             .sheet(isPresented: $showRewards) { RewardsView() }
+            .sheet(isPresented: $showActivity) {
+                UploadPastWorkoutsSheet()
+                    .presentationDetents([.large])
+                    .presentationCornerRadius(Theme.Radius.xl)
+            }
             .sheet(isPresented: $showShare) {
                 ShareSheet(items: [shareText])
             }
@@ -79,8 +88,8 @@ struct ProfileView: View {
                 switch kind {
                 case .cashout:
                     ComingSoonSheet(icon: "arrow.up.right.square.fill",
-                                    title: "Cash out to $SWEAT",
-                                    message: "Swap your Sweat Points for on-chain $SWEAT from the companion wallet. We're polishing the last bits.")
+                                    title: "Cash out to wallet",
+                                    message: "Move your Sweat to the companion wallet for swaps and gifting. We're polishing the last bits.")
                 case .appleHealth:
                     ComingSoonSheet(icon: "heart.fill",
                                     title: "Apple Health",
@@ -97,7 +106,7 @@ struct ProfileView: View {
                     app.signOut()
                 }
             } message: {
-                Text("You'll need to sign back in to see your workouts and points.")
+                Text("You'll need to sign back in to see your workouts and Sweat.")
             }
             .sheet(item: $selectedTrophy) { t in
                 TrophyDetailSheet(trophy: t)
@@ -111,7 +120,18 @@ struct ProfileView: View {
             )) { route in
                 AthleteProfileView(athleteId: route.id)
             }
+            .navigationDestination(item: $planForNav) { plan in
+                if let athlete = social.athletes.first(where: { $0.id == plan.id }) {
+                    TrainingPlanView(athlete: athlete, plan: plan)
+                }
+            }
             .task { await loadSweatBalance() }
+            .refreshable {
+                // Pull-to-refresh the on-chain Sweat balance after
+                // submitting a workout so the pill ticks up to match
+                // what's now in the user's Sui wallet.
+                await loadSweatBalance()
+            }
         }
     }
 
@@ -172,8 +192,14 @@ struct ProfileView: View {
                                 .font(.system(size: 12, weight: .medium))
                                 .foregroundStyle(.white.opacity(0.75))
                         }
-                        if let bal = sweatBalance {
-                            SweatPill(display: bal)
+                        if let bal = sweatBalance,
+                           let addr = app.currentUser?.suiAddress,
+                           let url = URL(string: "https://suiscan.xyz/testnet/account/\(addr)") {
+                            Link(destination: url) {
+                                SweatPill(display: bal)
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityHint("Opens your wallet on Suiscan")
                         }
                         if let me = social.me {
                             Text("·").foregroundStyle(.white.opacity(0.5))
@@ -307,10 +333,10 @@ struct ProfileView: View {
                             .foregroundStyle(.white)
                     }
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("Redeem \(app.sweatPoints.total) points")
+                        Text("Redeem your Sweat")
                             .font(.system(size: 15, weight: .bold, design: .rounded))
                             .foregroundStyle(Theme.Color.ink)
-                        Text("Turn them into gear, gift cards, or on-chain $SWEAT.")
+                        Text("Turn it into gear, gift cards, or featured ticket drops.")
                             .font(.system(size: 11, weight: .medium, design: .rounded))
                             .foregroundStyle(Theme.Color.inkSoft)
                             .lineLimit(1)
@@ -341,10 +367,14 @@ struct ProfileView: View {
 
     private var quickStats: some View {
         VStack(spacing: 10) {
-            // Row 1: workouts, points, lifetime sweat
+            // Row 1: workouts count, on-chain Sweat, lifetime distance.
+            // The Sweat pill mirrors the gold on-chain pill in the
+            // hero — single source of truth for "what you have on
+            // Sui." app.sweatPoints.total (local Apple-Health-derived
+            // sum) shows up as "available to claim" elsewhere.
             HStack(spacing: 10) {
                 statPill(value: "\(app.workouts.count)", label: "Workouts")
-                statPill(value: "\(app.sweatPoints.total)", label: "Points")
+                statPill(value: sweatBalance ?? "0", label: "Sweat on Sui")
                 statPill(value: String(format: "%.1f km", totalKm),
                          label: "Lifetime")
             }
@@ -407,9 +437,9 @@ struct ProfileView: View {
     }
 
     private func showcaseSlot(index: Int) -> some View {
-        let ids = social.me?.showcasedTrophyIDs ?? []
-        let trophy: Trophy? = ids.indices.contains(index)
-            ? social.trophies.first(where: { $0.id == ids[index] })
+        let keys = social.me?.showcasedTrophyIDs ?? []
+        let trophy: Trophy? = keys.indices.contains(index)
+            ? social.trophies.first(where: { $0.stableKey == keys[index] })
             : nil
         return Button {
             if let t = trophy { selectedTrophy = t }
@@ -545,6 +575,83 @@ struct ProfileView: View {
         .background(RoundedRectangle(cornerRadius: 12).fill(Theme.Color.surface))
     }
 
+    // MARK: - Activity card (entry to full workout history + publish flow)
+    //
+    // Tappable summary that takes the user to the multi-select sheet
+    // showing every Apple Health workout we've loaded, which ones are
+    // already published with a verified Sui receipt, and a publish
+    // path for the rest. Sits below the activity chart so the visual
+    // (last 4 weeks) and the actionable (full history) flow naturally.
+
+    private var activityCard: some View {
+        let total = app.workouts.count
+        // Count both verified-on-chain workouts and ones the server
+        // told us were duplicates (logged but no local tx digest).
+        let published = app.workouts.filter {
+            $0.suiTxDigest?.isEmpty == false
+                || app.alreadyLoggedWorkoutIDs.contains($0.id)
+        }.count
+        let unpublished = total - published
+        // Sum of points from unpublished workouts — what the user
+        // can still claim on chain by publishing more.
+        let claimableSweat = app.workouts
+            .filter {
+                $0.suiTxDigest?.isEmpty != false
+                    && !app.alreadyLoggedWorkoutIDs.contains($0.id)
+            }
+            .reduce(0) { $0 + $1.points }
+        return Button {
+            Haptics.tap()
+            showActivity = true
+        } label: {
+            HStack(spacing: 14) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .fill(Theme.Color.accent.opacity(0.18))
+                        .frame(width: 52, height: 52)
+                    Image(systemName: "list.bullet.clipboard.fill")
+                        .font(.system(size: 22, weight: .semibold))
+                        .foregroundStyle(Theme.Color.accentDeep)
+                }
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Activity")
+                        .font(.titleM).foregroundStyle(Theme.Color.ink)
+                    if total == 0 {
+                        Text("Apple Health workouts will appear here.")
+                            .font(.bodyS).foregroundStyle(Theme.Color.inkSoft)
+                            .lineLimit(1)
+                    } else if unpublished == 0 {
+                        Text("\(total) workouts · all verified ✨")
+                            .font(.bodyS).foregroundStyle(Theme.Color.inkSoft)
+                            .lineLimit(1)
+                    } else {
+                        Text("\(claimableSweat.formatted()) Sweat available to claim")
+                            .font(.bodyS).foregroundStyle(Theme.Color.inkSoft)
+                            .lineLimit(1)
+                        Text("\(unpublished) of \(total) workouts ready to publish")
+                            .font(.system(size: 11))
+                            .foregroundStyle(Theme.Color.inkFaint)
+                            .lineLimit(1)
+                    }
+                }
+                Spacer()
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Theme.Color.inkFaint)
+            }
+            .padding(14)
+            .background(
+                RoundedRectangle(cornerRadius: Theme.Radius.lg, style: .continuous)
+                    .fill(Theme.Color.bgElevated)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: Theme.Radius.lg, style: .continuous)
+                            .strokeBorder(Theme.Color.stroke, lineWidth: 1)
+                    )
+            )
+        }
+        .buttonStyle(.plain)
+    }
+
     // MARK: - Activity chart (last 4 weeks by workout count)
 
     private var activityChart: some View {
@@ -667,7 +774,7 @@ struct ProfileView: View {
                         Text("Trophies")
                             .font(.titleM).foregroundStyle(Theme.Color.ink)
                         Spacer()
-                        Text("\(social.trophies.filter { !$0.isLocked }.count) / \(social.trophies.count)")
+                        Text("\(social.trophies.filter { $0.isUnlocked }.count) / \(social.trophies.count)")
                             .font(.system(size: 12, weight: .semibold, design: .rounded))
                             .foregroundStyle(Theme.Color.inkSoft)
                         Image(systemName: "chevron.right")
@@ -707,11 +814,82 @@ struct ProfileView: View {
         }
     }
 
+    // MARK: - Training plans
+
+    /// Active training camps the user has at least started. Each row
+    /// is tappable; pushes into TrainingPlanView so the user can pick
+    /// up where they left off.
+    @ViewBuilder
+    private var trainingPlansSection: some View {
+        let started = app.startedTrainingPlans(in: social.trainingPlans)
+        if !started.isEmpty {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack {
+                    Text("Training Plans")
+                        .font(.titleM).foregroundStyle(Theme.Color.ink)
+                    Spacer()
+                    Text("\(started.count) active")
+                        .font(.system(size: 12, weight: .semibold, design: .rounded))
+                        .foregroundStyle(Theme.Color.inkSoft)
+                }
+                ForEach(started, id: \.plan.id) { entry in
+                    trainingPlanRow(plan: entry.plan, progress: entry.progress)
+                }
+            }
+            .padding(Theme.Space.md)
+            .background(RoundedRectangle(cornerRadius: Theme.Radius.lg).fill(Theme.Color.bgElevated))
+        }
+    }
+
+    private func trainingPlanRow(plan: FighterTrainingPlan, progress: UserTrainingProgress) -> some View {
+        let athlete = social.athletes.first(where: { $0.id == plan.id })
+        let fraction = progress.progressFraction(in: plan)
+        let isComplete = progress.isComplete(in: plan)
+        let currentIndex = progress.currentSessionIndex(in: plan)
+        return Button {
+            Haptics.tap()
+            planForNav = plan
+        } label: {
+            HStack(spacing: 12) {
+                if let athlete {
+                    AthleteAvatar(athlete: athlete, size: 44, showsTierRing: false)
+                } else {
+                    Circle().fill(Theme.Color.surface).frame(width: 44, height: 44)
+                }
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(plan.title)
+                        .font(.system(size: 14, weight: .bold, design: .rounded))
+                        .foregroundStyle(Theme.Color.ink)
+                        .lineLimit(1)
+                    Text(isComplete
+                         ? "Camp complete · review"
+                         : "Up next · session \(currentIndex + 1) of \(plan.sessions.count)")
+                        .font(.bodyS)
+                        .foregroundStyle(Theme.Color.inkSoft)
+                        .lineLimit(1)
+                    ProgressView(value: fraction)
+                        .tint(Theme.Color.accentDeep)
+                }
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundStyle(Theme.Color.inkFaint)
+            }
+            .padding(.vertical, 8)
+        }
+        .buttonStyle(.plain)
+    }
+
     // MARK: - Menu
 
     private var menu: some View {
         VStack(spacing: 0) {
-            menuRow("Cash out to $SWEAT", icon: "arrow.up.right.square.fill") {
+            demoToggleRow
+            Divider().padding(.leading, 52)
+            menuRow("Reset to demo data", icon: "arrow.counterclockwise") {
+                resetToDemoData()
+            }
+            Divider().padding(.leading, 52)
+            menuRow("Cash out to wallet", icon: "arrow.up.right.square.fill") {
                 pendingComingSoon = .cashout
             }
             Divider().padding(.leading, 52)
@@ -730,6 +908,39 @@ struct ProfileView: View {
             menuRow("Advanced", icon: "terminal.fill") { showAdvanced = true }
         }
         .background(RoundedRectangle(cornerRadius: Theme.Radius.md).fill(Theme.Color.bgElevated))
+    }
+
+    /// Stage-demo backup: when ON, the feed and clubs stay populated
+    /// from local fixtures instead of being replaced by server data
+    /// on refresh. Persists across launches via AppPersistence.
+    private var demoToggleRow: some View {
+        @Bindable var bindable = app
+        return HStack(spacing: 14) {
+            Image(systemName: "theatermasks.fill")
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundStyle(Theme.Color.inkSoft)
+                .frame(width: 24)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Show demo data")
+                    .font(.bodyL)
+                    .foregroundStyle(Theme.Color.ink)
+                Text("Keep seeded social fixtures visible. Real actions still go through.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(Theme.Color.inkFaint)
+                    .lineLimit(2)
+            }
+            Spacer(minLength: 8)
+            Toggle("", isOn: $bindable.showDemoData)
+                .labelsHidden()
+        }
+        .padding(.horizontal, Theme.Space.md)
+        .padding(.vertical, 12)
+    }
+
+    private func resetToDemoData() {
+        SocialDataService.shared.reset()
+        SocialDataService.shared.seed(for: app.currentUser, workouts: app.workouts)
+        Haptics.success()
     }
 
     /// Deep-links to iOS Settings → SuiSport where the user can manage push
@@ -898,7 +1109,7 @@ struct AdvancedSheet: View {
                     }
                     if let b = balance {
                         HStack {
-                            Label("$SWEAT balance", systemImage: "bolt.heart.fill")
+                            Label("Sweat balance", systemImage: "bolt.heart.fill")
                             Spacer()
                             Text(b.display)
                                 .font(.system(.body, design: .monospaced).weight(.semibold))
@@ -937,7 +1148,7 @@ struct AdvancedSheet: View {
                     }
                     if let url = status.flatMap({ URL(string: "\($0.explorerUrl)/account/\(app.currentUser?.suiAddress ?? "")") }) {
                         Link(destination: url) {
-                            Label("View on Sui explorer", systemImage: "safari")
+                            Label("View account on Sui", systemImage: "safari")
                         }
                     } else {
                         Label("View on Sui explorer", systemImage: "safari")

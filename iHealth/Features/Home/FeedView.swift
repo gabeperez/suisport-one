@@ -4,6 +4,12 @@ struct FeedView: View {
     @Environment(AppState.self) private var app
     @Environment(SocialDataService.self) private var social
 
+    /// Optional escape hatch back to RootTabView so the top-right
+    /// avatar can route to the user's own ProfileView (the You tab)
+    /// instead of pushing AthleteProfileView with their fixture-
+    /// built athlete record. RootTabView passes the closure in.
+    var switchTab: ((RootTab) -> Void)? = nil
+
     @State private var selectedItem: FeedItem?
     @State private var selectedAthlete: Athlete?
     @State private var selectedChallenge: Challenge?
@@ -12,9 +18,19 @@ struct FeedView: View {
     @State private var sort: FeedSortSheet.FeedSort = .recent
     @State private var filter: FeedFilter = .following
     @State private var reportingItem: FeedItem?
+    @State private var sweatBalance: SweatBalanceResponse?
+    @State private var showSweatBreakdown = false
+    @State private var showFightersGrid = false
 
-    enum FeedFilter: String, CaseIterable { case following, discover
-        var title: String { self == .following ? "Following" : "Discover" }
+    enum FeedFilter: String, CaseIterable {
+        case following, discover, fighters
+        var title: String {
+            switch self {
+            case .following: return "Following"
+            case .discover: return "Discover"
+            case .fighters: return "Fighters"
+            }
+        }
     }
 
     var body: some View {
@@ -22,7 +38,13 @@ struct FeedView: View {
             ScrollView {
                 VStack(spacing: Theme.Space.md) {
                     headerBar
-                    if social.lastRefreshError {
+                    // Show the offline banner ONLY when there's no
+                    // content to read — empty feed + refresh error.
+                    // Simulator QUIC failures and transient network
+                    // blips would otherwise stack a scary banner on
+                    // top of the seeded fixture feed; users can
+                    // pull-to-refresh to retry from the feed itself.
+                    if social.lastRefreshError && social.feed.isEmpty {
                         offlineBanner
                     }
                     samuraiCard
@@ -41,8 +63,48 @@ struct FeedView: View {
                 .frame(maxWidth: 640)
                 .frame(maxWidth: .infinity)
             }
-            .refreshable { await social.refresh() }
+            .refreshable {
+                await social.refresh()
+                await loadSweatBalance()
+            }
+            .task { await loadSweatBalance() }
             .background(Theme.Color.bg.ignoresSafeArea())
+            .sheet(isPresented: $showFightersGrid) {
+                FightersGridSheet(
+                    fighters: fighterRoster,
+                    onPick: { athlete in
+                        showFightersGrid = false
+                        // Tiny delay so the sheet's dismissal animation
+                        // doesn't fight the navigation push.
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) {
+                            selectedAthlete = athlete
+                        }
+                    }
+                )
+                .presentationDetents([.large])
+                .presentationDragIndicator(.visible)
+                .presentationCornerRadius(Theme.Radius.xl)
+            }
+            .sheet(isPresented: $showSweatBreakdown) {
+                // Fall back to the workout-derived sum when the
+                // ledger hasn't seen any mints yet (first launch
+                // with this build, or pre-existing on-chain state).
+                // Ensures "Lifetime earned" reads as a positive
+                // number even before the ledger has been populated.
+                let credited = max(app.sweatLedger.credited, lifetimeOnChain)
+                SweatBreakdownSheet(
+                    lifetimeCredited: credited,
+                    inWalletDisplay: sweatBalance?.display,
+                    inWalletEstimate: parsedInWallet,
+                    lifetimeOnChain: lifetimeOnChain,
+                    totalRedeemed: app.sweatLedger.redeemed,
+                    onClose: { showSweatBreakdown = false },
+                    onRedeem: nil
+                )
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
+                .presentationCornerRadius(Theme.Radius.xl)
+            }
             .navigationDestination(item: $selectedItem) { item in
                 WorkoutDetailView(feedItemId: item.id)
             }
@@ -94,7 +156,9 @@ struct FeedView: View {
                     Text("Hey, \(firstName)")
                         .font(.displayS)
                         .foregroundStyle(Theme.Color.ink)
-                    DemoChip()
+                    if isInDemoMode {
+                        DemoChip()
+                    }
                 }
                 Text(streakLine)
                     .font(.bodyM)
@@ -102,7 +166,18 @@ struct FeedView: View {
             }
             Spacer()
             if let me = social.me {
-                Button { selectedAthlete = me } label: {
+                Button {
+                    Haptics.tap()
+                    // Tap your own avatar → jump to the You tab (real
+                    // ProfileView with full data) instead of pushing
+                    // AthleteProfileView, which shows the fixture-
+                    // built record with empty stats.
+                    if let switchTab {
+                        switchTab(.you)
+                    } else {
+                        selectedAthlete = me
+                    }
+                } label: {
                     AthleteAvatar(athlete: me, size: 40)
                 }
                 .buttonStyle(.plain)
@@ -112,39 +187,51 @@ struct FeedView: View {
 
     // MARK: - Offline / error banner
 
+    /// The whole banner is one Button. Avoids any nested-button +
+    /// adjacent-Button hit-test conflict with the giant Samurai card
+    /// below — tapping anywhere on the banner triggers a refresh.
     private var offlineBanner: some View {
-        HStack(spacing: 10) {
-            Image(systemName: social.isOffline ? "wifi.slash" : "exclamationmark.triangle.fill")
-                .font(.system(size: 15, weight: .bold))
-                .foregroundStyle(Theme.Color.hot)
-            Text("Couldn't refresh feed — check your connection.")
-                .font(.system(size: 13, weight: .medium, design: .rounded))
-                .foregroundStyle(Theme.Color.ink)
-                .lineLimit(2)
-            Spacer(minLength: 8)
-            Button {
-                Haptics.tap()
-                Task { await social.refresh() }
-            } label: {
-                Text("Retry")
-                    .font(.system(size: 13, weight: .bold, design: .rounded))
-                    .foregroundStyle(Theme.Color.inkInverse)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 6)
-                    .background(Capsule().fill(Theme.Color.ink))
+        Button {
+            Haptics.tap()
+            Task { await social.refresh() }
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: social.isOffline ? "wifi.slash" : "exclamationmark.triangle.fill")
+                    .font(.system(size: 15, weight: .bold))
+                    .foregroundStyle(Theme.Color.hot)
+                Text(social.isUnauthorized
+                     ? "Sign in to load your feed."
+                     : "Tap to retry — couldn't refresh feed.")
+                    .font(.system(size: 13, weight: .semibold, design: .rounded))
+                    .foregroundStyle(Theme.Color.ink)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.leading)
+                Spacer(minLength: 8)
+                if social.isRefreshing {
+                    ProgressView()
+                        .controlSize(.small)
+                } else {
+                    Image(systemName: "arrow.clockwise")
+                        .font(.system(size: 13, weight: .bold))
+                        .foregroundStyle(Theme.Color.inkInverse)
+                        .padding(8)
+                        .background(Circle().fill(Theme.Color.ink))
+                }
             }
-            .buttonStyle(.plain)
-            .disabled(social.isRefreshing)
+            .padding(12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous)
+                    .fill(Theme.Color.hot.opacity(0.12))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous)
+                    .strokeBorder(Theme.Color.hot.opacity(0.3), lineWidth: 1)
+            )
+            .contentShape(RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous))
         }
-        .padding(12)
-        .background(
-            RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous)
-                .fill(Theme.Color.hot.opacity(0.12))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous)
-                .strokeBorder(Theme.Color.hot.opacity(0.3), lineWidth: 1)
-        )
+        .buttonStyle(.plain)
+        .disabled(social.isRefreshing)
     }
 
     // MARK: - ONE Samurai 1 hero card
@@ -241,6 +328,10 @@ struct FeedView: View {
                     RoundedRectangle(cornerRadius: Theme.Radius.xl, style: .continuous)
                         .strokeBorder(.white.opacity(0.08), lineWidth: 1)
                 )
+                // Tight hit area so an adjacent banner's taps can't
+                // accidentally land on the Samurai card above it.
+                .contentShape(RoundedRectangle(cornerRadius: Theme.Radius.xl,
+                                               style: .continuous))
             }
             .buttonStyle(.plain)
         }
@@ -314,38 +405,96 @@ struct FeedView: View {
 
     // MARK: - Points card
 
-    private var pointsCard: some View {
-        VStack(alignment: .leading, spacing: Theme.Space.sm) {
-            HStack(spacing: 8) {
-                Image(systemName: "bolt.heart.fill")
-                    .font(.system(size: 14, weight: .semibold))
-                Text("Sweat Points")
-                    .font(.system(size: 13, weight: .semibold, design: .rounded))
-            }
-            .foregroundStyle(Theme.Color.accentInk.opacity(0.75))
+    /// Sum of points across workouts that actually landed on chain —
+    /// the closest local proxy to "Sweat that was minted into the
+    /// wallet at some point." Differs from `app.sweatPoints.total`,
+    /// which includes unclaimed Apple Health workouts.
+    private var lifetimeOnChain: Int {
+        app.workouts
+            .filter { $0.suiTxDigest?.isEmpty == false }
+            .reduce(0) { $0 + $1.points }
+    }
 
-            Text("\(app.sweatPoints.total)")
-                .font(.numberXL)
-                .foregroundStyle(Theme.Color.accentInk)
-                .contentTransition(.numericText())
+    /// Best-effort numeric parse of the on-chain balance display
+    /// string ("1,057.20" → 1057). Used for the "redeemed = lifetime
+    /// minted − in wallet" derivation in the breakdown sheet.
+    private var parsedInWallet: Int {
+        guard let display = sweatBalance?.display else { return 0 }
+        let stripped = display.replacingOccurrences(of: ",", with: "")
+        return Int(Double(stripped) ?? 0)
+    }
 
-            HStack(spacing: Theme.Space.md) {
-                stat(label: "This week", value: "+\(app.sweatPoints.weekly)")
-                Divider().frame(height: 26).overlay(Theme.Color.accentInk.opacity(0.15))
-                stat(label: "Multiplier",
-                     value: String(format: "x%.2f", social.streak.multiplier))
+    private func loadSweatBalance() async {
+        guard let addr = app.currentUser?.suiAddress,
+              addr.hasPrefix("0x"), addr.count == 66
+        else { return }
+        sweatBalance = try? await APIClient.shared.fetchSweatBalance(address: addr)
+        // Bootstrap the ledger on the very first run with this build
+        // so pre-existing on-chain state surfaces in the breakdown
+        // sheet without needing a fresh mint to populate it. Idempotent
+        // — only fires while the ledger is still its initial zero state.
+        if app.sweatLedger == .zero {
+            let baseline = max(parsedInWallet, lifetimeOnChain)
+            if baseline > 0 {
+                app.sweatLedger = SweatLedger(credited: baseline, redeemed: 0)
             }
         }
-        .padding(Theme.Space.lg)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: Theme.Radius.xl, style: .continuous)
-                .fill(Theme.Gradient.accent)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: Theme.Radius.xl, style: .continuous)
-                .strokeBorder(.white.opacity(0.2), lineWidth: 1)
-        )
+    }
+
+    private var pointsCard: some View {
+        Button {
+            Haptics.tap()
+            showSweatBreakdown = true
+        } label: {
+            VStack(alignment: .leading, spacing: Theme.Space.sm) {
+                HStack(spacing: 8) {
+                    Image(systemName: "bolt.heart.fill")
+                        .font(.system(size: 14, weight: .semibold))
+                    Text("Lifetime Sweat earned")
+                        .font(.system(size: 13, weight: .semibold, design: .rounded))
+                    Spacer()
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundStyle(Theme.Color.accentInk.opacity(0.55))
+                }
+                .foregroundStyle(Theme.Color.accentInk.opacity(0.75))
+
+                Text("\(app.sweatPoints.total)")
+                    .font(.numberXL)
+                    .foregroundStyle(Theme.Color.accentInk)
+                    .contentTransition(.numericText())
+
+                HStack(spacing: Theme.Space.md) {
+                    stat(label: "Ready to redeem",
+                         value: sweatBalance?.display ?? "—")
+                    Divider().frame(height: 26).overlay(Theme.Color.accentInk.opacity(0.15))
+                    // Sourced from the local SweatLedger now, not
+                    // derived from chain balance. Bonus wins display
+                    // priority since it's the more interesting story
+                    // for a fresh-bonus user; redeemed shows once
+                    // they've spent.
+                    let bonus = max(0, app.sweatLedger.credited - lifetimeOnChain)
+                    if bonus > 0 {
+                        stat(label: "Bonus earned",
+                             value: "+\(bonus)")
+                    } else {
+                        stat(label: "Redeemed",
+                             value: "\(app.sweatLedger.redeemed)")
+                    }
+                }
+            }
+            .padding(Theme.Space.lg)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: Theme.Radius.xl, style: .continuous)
+                    .fill(Theme.Gradient.accent)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: Theme.Radius.xl, style: .continuous)
+                    .strokeBorder(.white.opacity(0.2), lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
     }
 
     private func stat(label: String, value: String) -> some View {
@@ -458,6 +607,9 @@ struct FeedView: View {
         if social.feed.isEmpty {
             emptyState
         } else {
+            if filter == .fighters {
+                fightersRail
+            }
             let items = filteredFeed
             ForEach(Array(items.enumerated()), id: \.element.id) { idx, item in
                 FeedCard(
@@ -498,7 +650,19 @@ struct FeedView: View {
     }
 
     private var filteredFeed: [FeedItem] {
-        let base = filter == .following ? social.feed : social.feed.shuffled()
+        let base: [FeedItem]
+        switch filter {
+        case .following:
+            base = social.feed
+        case .discover:
+            base = social.feed.shuffled()
+        case .fighters:
+            // Only verified athletes (the seeded ONE Championship
+            // roster carries verified=true). Drops the user's own
+            // workouts + any non-fighter activity, leaving a pure
+            // fighter feed.
+            base = social.feed.filter { $0.athlete.verified }
+        }
         switch sort {
         case .recent:
             return base.sorted { $0.workout.startDate > $1.workout.startDate }
@@ -506,6 +670,75 @@ struct FeedView: View {
             return base.sorted { $0.kudosCount > $1.kudosCount }
         case .closestFriends:
             return base
+        }
+    }
+
+    /// Verified athletes only — drives the Fighters rail + the
+    /// "View all" grid sheet. Sorts by tier then followers so the
+    /// roster's most prominent fighters lead.
+    private var fighterRoster: [Athlete] {
+        social.athletes
+            .filter { $0.verified }
+            .sorted { lhs, rhs in
+                if lhs.tier != rhs.tier { return lhs.tier.threshold > rhs.tier.threshold }
+                return lhs.followers > rhs.followers
+            }
+    }
+
+    /// Header rail shown above the Fighters feed — horizontal scroll
+    /// of fighter avatars + a "View all" tap target into the full
+    /// roster grid.
+    @ViewBuilder
+    private var fightersRail: some View {
+        if !fighterRoster.isEmpty {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack {
+                    Text("ONE Championship roster")
+                        .font(.system(size: 13, weight: .bold, design: .rounded))
+                        .tracking(0.06)
+                        .foregroundStyle(Theme.Color.inkSoft)
+                    Spacer()
+                    Button {
+                        Haptics.tap()
+                        showFightersGrid = true
+                    } label: {
+                        HStack(spacing: 3) {
+                            Text("View all")
+                                .font(.system(size: 12, weight: .semibold, design: .rounded))
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 10, weight: .bold))
+                        }
+                        .foregroundStyle(Theme.Color.accentDeep)
+                    }
+                    .buttonStyle(.plain)
+                }
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 12) {
+                        ForEach(fighterRoster.prefix(12)) { fighter in
+                            Button {
+                                Haptics.tap()
+                                selectedAthlete = fighter
+                            } label: {
+                                VStack(spacing: 6) {
+                                    AthleteAvatar(athlete: fighter, size: 56)
+                                    Text(fighter.displayName)
+                                        .font(.system(size: 11, weight: .semibold, design: .rounded))
+                                        .foregroundStyle(Theme.Color.ink)
+                                        .lineLimit(1)
+                                        .frame(width: 72)
+                                }
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    .padding(.vertical, 2)
+                }
+            }
+            .padding(Theme.Space.md)
+            .background(
+                RoundedRectangle(cornerRadius: Theme.Radius.lg, style: .continuous)
+                    .fill(Theme.Color.bgElevated)
+            )
         }
     }
 
@@ -529,6 +762,14 @@ struct FeedView: View {
     }
 
     // MARK: - Derived
+
+    /// Drives the DEMO chip. True when EITHER we have no real
+    /// session (pre-sign-in fixtures) OR the user has explicitly
+    /// toggled "Show demo data" in Profile settings — both states
+    /// mean the feed isn't sourced from their real account.
+    private var isInDemoMode: Bool {
+        APIClient.shared.sessionToken == nil || app.showDemoData
+    }
 
     private var firstName: String {
         (app.currentUser?.displayName ?? "")

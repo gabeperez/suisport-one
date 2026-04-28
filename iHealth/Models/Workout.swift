@@ -17,6 +17,13 @@ struct Workout: Identifiable, Hashable, Codable {
     var verified: Bool
     /// True if the blob has been uploaded to Walrus.
     var synced: Bool
+    /// Sui tx digest for this workout's on-chain mint. Nil when the
+    /// workout isn't on chain (stub mode, seed fixtures, pending retry).
+    /// Drives the Suiscan deep-link in workout detail's verified strip.
+    /// Default nil so existing memberwise init call sites compile clean.
+    var suiTxDigest: String? = nil
+    /// Walrus blob id for the canonical workout JSON proof.
+    var walrusBlobId: String? = nil
 
     var paceSecondsPerKm: Double? {
         guard let d = distanceMeters, d > 0 else { return nil }

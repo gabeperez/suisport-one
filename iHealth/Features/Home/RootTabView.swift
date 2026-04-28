@@ -8,6 +8,15 @@ struct RootTabView: View {
     @State private var tab: RootTab = .feed
     @State private var showRecord = false
 
+    // Per-tab nonce. Re-tapping the active tab bumps the nonce, which
+    // changes the SwiftUI identity of that tab's root view and forces
+    // the view (including any pushed NavigationStack) to recreate
+    // from scratch — same UX as iOS native TabView's tap-to-root.
+    @State private var feedNonce = UUID()
+    @State private var clubsNonce = UUID()
+    @State private var exploreNonce = UUID()
+    @State private var profileNonce = UUID()
+
     var body: some View {
         ZStack(alignment: .bottom) {
             content
@@ -21,15 +30,33 @@ struct RootTabView: View {
                 .presentationCornerRadius(Theme.Radius.xl)
         }
         .background(Theme.Color.bg.ignoresSafeArea())
-        .task { await social.refresh() }
+        .task {
+            // Mirror the AppState toggle into the data service so
+            // refresh() can short-circuit when the user wants to
+            // stage-demo with rich fixture data.
+            social.demoOverride = app.showDemoData
+            await social.refresh()
+        }
+        .onChange(of: app.showDemoData) { _, newValue in
+            social.demoOverride = newValue
+            // Re-seed the local fixtures when the user flips the
+            // toggle ON, so they get a fresh, full set even if a
+            // previous refresh had partially overwritten them.
+            if newValue {
+                SocialDataService.shared.reset()
+                SocialDataService.shared.seed(for: app.currentUser, workouts: app.workouts)
+            } else {
+                Task { await social.refresh() }
+            }
+        }
     }
 
     @ViewBuilder private var content: some View {
         switch tab {
-        case .feed: FeedView()
-        case .clubs: ClubsView()
-        case .explore: ExploreView()
-        case .you: ProfileView()
+        case .feed:    FeedView(switchTab: { tab = $0 }).id(feedNonce)
+        case .clubs:   ClubsView().id(clubsNonce)
+        case .explore: ExploreView().id(exploreNonce)
+        case .you:     ProfileView().id(profileNonce)
         }
     }
 
@@ -56,7 +83,19 @@ struct RootTabView: View {
     private func tabItem(_ t: RootTab, icon: String, label: String) -> some View {
         Button {
             Haptics.tap()
-            withAnimation(Theme.Motion.snap) { tab = t }
+            if tab == t {
+                // Re-tap on the active tab → pop to root by recycling
+                // the tab view's identity. Matches iOS native TabView
+                // behavior (tap Home twice → top of feed).
+                switch t {
+                case .feed:    feedNonce = UUID()
+                case .clubs:   clubsNonce = UUID()
+                case .explore: exploreNonce = UUID()
+                case .you:     profileNonce = UUID()
+                }
+            } else {
+                withAnimation(Theme.Motion.snap) { tab = t }
+            }
         } label: {
             let selected = tab == t
             VStack(spacing: 2) {

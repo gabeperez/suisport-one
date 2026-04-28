@@ -18,14 +18,25 @@ nonisolated final class APIClient: @unchecked Sendable {
     /// Session token returned by `/auth/session`. While we mock the auth
     /// flow, we fall back to a `demoAthleteId` query param so the API
     /// accepts mutating calls without a real session.
-    var sessionToken: String?
+    /// Bearer JWT issued by /v1/auth/session. Hydrated from Keychain
+    /// at construction; assigning a new value (or nil) writes through
+    /// so the next launch picks up the change.
+    var sessionToken: String? = AppPersistence.loadSessionToken() {
+        didSet { AppPersistence.saveSessionToken(sessionToken) }
+    }
     var demoAthleteId: String? = "0xdemo_me"
 
     private let session: URLSession = {
         let cfg = URLSessionConfiguration.default
-        cfg.timeoutIntervalForRequest = 15
-        cfg.timeoutIntervalForResource = 30
+        // Tight timeout so a stuck QUIC handshake (seen on iOS sim
+        // cellular paths with no UDP) gives up fast and the retry
+        // path in send() can take over with a fresh connection.
+        cfg.timeoutIntervalForRequest = 8
+        cfg.timeoutIntervalForResource = 20
         cfg.waitsForConnectivity = true
+        // HTTP/3 pipelining is what hangs on simulator. Default
+        // multipath service forces a more conservative path.
+        cfg.multipathServiceType = .none
         return URLSession(configuration: cfg)
     }()
 
@@ -52,6 +63,15 @@ nonisolated final class APIClient: @unchecked Sendable {
     // MARK: - Profile
 
     func fetchMe() async throws -> AthleteDTO { (try await get("/me") as AthleteEnvelope).athlete }
+
+    /// Server's view of the current user's on-chain workouts. Used
+    /// by AppState.reconcileWorkoutsFromServer to fill in digests
+    /// for workouts the iOS device hasn't seen the mint receipt for
+    /// (fresh install, device swap, cleared cache). Filters out
+    /// workouts whose chain step never landed.
+    func fetchMyWorkouts() async throws -> MyWorkoutsResponse {
+        try await get("/me/workouts")
+    }
 
     func updateMe(_ body: AthletePatch) async throws -> AthleteDTO {
         (try await sendPatch("/me", body: body) as AthleteEnvelope).athlete
@@ -239,6 +259,13 @@ nonisolated final class APIClient: @unchecked Sendable {
         try await post("/rewards/redeem", body: ["catalogId": catalogId])
     }
 
+    /// Sample on-chain redemption: spends 1 Sweat off-chain, sponsors a
+    /// 0.001 SUI transfer from operator → user as the on-chain receipt.
+    /// Drives the demo's "redemption is wired into Sui" moment.
+    func redeemSample() async throws -> SampleRedemptionResponse {
+        try await post("/rewards/redeem-sample", body: EmptyBody())
+    }
+
     func fetchRewardsHistory() async throws -> [RedemptionHistoryItemDTO] {
         (try await get("/rewards/history") as RewardsHistoryEnvelope).items
     }
@@ -356,11 +383,18 @@ nonisolated struct AthleteDTO: Decodable, Hashable {
     // decode cleanly — if the server doesn't ship them they stay nil.
     let pronouns: String?
     let websiteUrl: String?
+    /// Lifetime Sweat credited (display units) — server ledger from
+    /// migration 0013. Optional so a not-yet-deployed server still
+    /// decodes cleanly.
+    let sweatCredited: Int?
+    /// Lifetime Sweat redeemed across all redemption flows.
+    let sweatRedeemed: Int?
 
     private enum CodingKeys: String, CodingKey {
         case id, suiAddress, handle, displayName, avatarTone, bannerTone,
              verified, tier, totalWorkouts, followers, following, bio,
-             location, photoURL, suinsName, dob, isDemo, pronouns, websiteUrl
+             location, photoURL, suinsName, dob, isDemo, pronouns, websiteUrl,
+             sweatCredited, sweatRedeemed
     }
 
     init(from decoder: Decoder) throws {
@@ -384,6 +418,8 @@ nonisolated struct AthleteDTO: Decodable, Hashable {
         self.isDemo = try c.decode(Bool.self, forKey: .isDemo)
         self.pronouns = try c.decodeIfPresent(String.self, forKey: .pronouns)
         self.websiteUrl = try c.decodeIfPresent(String.self, forKey: .websiteUrl)
+        self.sweatCredited = try c.decodeIfPresent(Int.self, forKey: .sweatCredited)
+        self.sweatRedeemed = try c.decodeIfPresent(Int.self, forKey: .sweatRedeemed)
     }
 }
 nonisolated struct AthleteEnvelope: Decodable { let athlete: AthleteDTO }
@@ -401,6 +437,12 @@ nonisolated struct WorkoutDTO: Decodable, Hashable {
     let points: Int
     let verified: Bool
     let isDemo: Bool
+    /// Sui tx digest for this workout's on-chain mint. Nil when the
+    /// workout never reached the chain (stub mode, seed fixtures,
+    /// or pending mint awaiting retry).
+    let suiTxDigest: String?
+    let walrusBlobId: String?
+    let sweatMinted: Int?
 }
 
 nonisolated struct FeedItemDTO: Decodable, Hashable, Identifiable {
@@ -581,6 +623,25 @@ nonisolated struct WorkoutOnChainResponse: Decodable {
     let sweatMinted: Int
 }
 
+/// Server's record of the current user's on-chain workouts.
+/// Returned from `GET /me/workouts`; consumed by AppState's
+/// reconcile pass to fill in digests for HealthKit workouts whose
+/// chain receipts iOS doesn't have locally.
+nonisolated struct MyWorkoutsResponse: Decodable {
+    let workouts: [MyWorkoutEntry]
+}
+
+nonisolated struct MyWorkoutEntry: Decodable, Hashable {
+    let type: String
+    /// Unix seconds (server stores as INTEGER, not millis).
+    let startDate: TimeInterval
+    let durationSeconds: TimeInterval
+    let distanceMeters: Double?
+    let txDigest: String
+    let walrusBlobId: String?
+    let sweatMinted: Int?
+}
+
 nonisolated struct IdEnvelope: Decodable { let id: String }
 
 nonisolated struct AvatarUploadResponse: Decodable {
@@ -731,8 +792,25 @@ nonisolated struct SubmitWorkoutRequest: Encodable {
 nonisolated struct SubmitWorkoutResponse: Decodable {
     let workoutId: String
     let feedItemId: String
+    /// Post-formula Sweat that landed in the user's wallet on Sui. The
+    /// number to animate in the success card. Matches the on-chain
+    /// `WorkoutScored.final_reward` event in display units.
     let pointsMinted: Int
     let txDigest: String
+    /// Walrus blob id of the canonical workout JSON. Nil when the
+    /// pipeline ran in stub mode or Walrus upload failed.
+    let walrusBlobId: String?
+    /// Server-side attestation pipeline result. `pipeline` is one of
+    /// "executed", "stubbed", "sui_not_configured", "walrus_upload_failed",
+    /// or "sui_failed:<reason>". Surfaced in the upload-results UI so
+    /// users (and us) see why a chain step failed instead of a vague
+    /// "verification pending."
+    let attestation: AttestationStatus?
+}
+
+nonisolated struct AttestationStatus: Decodable {
+    let status: String
+    let pipeline: String
 }
 
 // MARK: - Rewards DTOs
@@ -753,6 +831,18 @@ nonisolated struct RedemptionResponse: Decodable {
     let redemptionId: String
     let code: String
     let costPoints: Int
+}
+
+nonisolated struct SampleRedemptionResponse: Decodable, Identifiable {
+    let redemptionId: String
+    let costPoints: Int
+    let suiAmountMist: String
+    let suiAmountDisplay: String
+    let txDigest: String
+    let txExplorerUrl: String
+    let walletExplorerUrl: String
+    let message: String
+    var id: String { redemptionId }
 }
 
 nonisolated struct RedemptionHistoryItemDTO: Decodable, Hashable, Identifiable {

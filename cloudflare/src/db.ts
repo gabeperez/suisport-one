@@ -20,6 +20,12 @@ export type AthleteRow = {
     is_demo: number;
     /** Present after migration 0007; null until captured in onboarding. */
     dob?: number | null;
+    /** Lifetime Sweat credited (display units) — see migration 0013.
+     *  Optional in the type so a deploy without the migration applied
+     *  doesn't break parsing; the column defaults to 0 once present. */
+    sweat_credited?: number;
+    /** Lifetime Sweat redeemed across all redemption flows. */
+    sweat_redeemed?: number;
 };
 
 export type WorkoutRow = {
@@ -35,6 +41,9 @@ export type WorkoutRow = {
     points: number;
     verified: number;
     is_demo: number;
+    sui_tx_digest: string | null;
+    walrus_blob_id: string | null;
+    sweat_minted: number | null;
 };
 
 export type FeedItemRow = {
@@ -155,10 +164,20 @@ export function athleteDTO(r: AthleteRow) {
         suinsName: r.suins_name,
         dob: r.dob ?? null,
         isDemo: r.is_demo === 1,
+        // Coalesce to 0 so iOS sees a usable value before migration 0013
+        // is applied. Once the columns exist, the real cumulative totals
+        // flow through.
+        sweatCredited: r.sweat_credited ?? 0,
+        sweatRedeemed: r.sweat_redeemed ?? 0,
     };
 }
 
 export function workoutDTO(r: WorkoutRow) {
+    // Treat the `pending_<id>` placeholder as nil so the iOS UI can
+    // distinguish "actually on chain" from "queued for retry."
+    const realDigest = r.sui_tx_digest && !r.sui_tx_digest.startsWith("pending_")
+        ? r.sui_tx_digest
+        : null;
     return {
         id: r.id,
         athleteId: r.athlete_id,
@@ -172,6 +191,9 @@ export function workoutDTO(r: WorkoutRow) {
         points: r.points,
         verified: r.verified === 1,
         isDemo: r.is_demo === 1,
+        suiTxDigest: realDigest,
+        walrusBlobId: r.walrus_blob_id,
+        sweatMinted: r.sweat_minted,
     };
 }
 

@@ -115,6 +115,8 @@ export default {
         ctx.waitUntil(indexTick(env).then((r) => {
             if (!r.ok) console.warn("indexer tick skipped", r.error);
             else if ((r.ingested ?? 0) > 0) console.log(`indexed ${r.ingested} events`);
+        }).catch((err) => {
+            console.warn("indexer tick failed", err);
         }));
         ctx.waitUntil(retryPendingWorkoutsTick(env).then((r) => {
             if (r.succeeded > 0 || r.failed > 0) {

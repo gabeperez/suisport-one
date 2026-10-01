@@ -118,6 +118,35 @@ comments, follows, and club memberships.
 To light up Queues + DO, uncomment the bindings in `wrangler.toml` and
 pay $5/mo for Workers Paid.
 
+## Pausing / resuming the cron
+
+The cron is **paused** as of 2026-10-01 (`crons = []` in `wrangler.toml`).
+The API still serves requests; only the every-minute background jobs are off:
+
+- `indexTick`: Sui event indexer (cursor stored in D1, so it catches up on resume)
+- `retryPendingWorkoutsTick`: retries stuck on-chain workout submissions
+- `reconcileWalrusPendingTick`: re-uploads placeholder Walrus blobs
+
+**Resume** (about 1 minute):
+
+```bash
+cd cloudflare
+# in wrangler.toml, under [triggers]:
+#   crons = ["* * * * *"]
+npm run deploy
+# confirm: the deploy output should list "schedule: * * * * *"
+```
+
+Or, without changing code: Cloudflare dashboard → Workers → `suisport-api`
+→ Settings → Triggers → Cron Triggers → add `* * * * *`. The next
+`npm run deploy` from this repo will remove it again unless `wrangler.toml` is
+updated too.
+
+**Pause again:** set `crons = []` and `npm run deploy`.
+
+Heads-up: the older `SuiSport App` repo deploys to the same Worker name
+(`suisport-api`) with the cron on, so deploying from there turns it back on.
+
 ## Cost at current scale
 
 - Workers free (< 100k req/day): **$0/mo**

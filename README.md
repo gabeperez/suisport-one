@@ -163,6 +163,8 @@ sui client publish --gas-budget 100000000
 # update SUI_PACKAGE_ID + related ids in wrangler secrets
 ```
 
+> The Worker's every-minute cron is **paused** (project dormant). To resume it, see [cloudflare/README.md → Pausing / resuming the cron](cloudflare/README.md#pausing--resuming-the-cron).
+
 Existing testnet deployment is live at the Worker URL above. Wrangler secrets carry the Sui package + RewardsEngine + OracleCap + Version object ids; rotate via `wrangler secret put`.
 
 ---

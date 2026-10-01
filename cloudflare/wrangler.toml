@@ -24,10 +24,16 @@ type = "ratelimit"
 namespace_id = "1001"
 simple = { limit = 60, period = 60 }
 
-# Sui event indexer runs every minute when SUI_* secrets are configured;
-# no-op otherwise. Tick is safe to miss — we read the cursor off D1.
+# Cron is PAUSED (2026-10-01) — project is dormant. `crons = []` removes the
+# schedule on deploy. To turn it back on, swap the two lines below and run
+# `npm run deploy`. See "Pausing / resuming the cron" in cloudflare/README.md.
+#
+# When on, it runs every minute: Sui event indexer (no-op without SUI_*
+# secrets), on-chain workout retry, and Walrus blob reconcile. Ticks are
+# safe to miss — the indexer reads its cursor off D1.
 [triggers]
-crons = ["* * * * *"]
+crons = []
+# crons = ["* * * * *"]
 
 # ----- Staging environment -----
 # Deploy with `wrangler deploy --env staging`. Requires a separate D1
